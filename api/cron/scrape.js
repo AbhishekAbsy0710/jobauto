@@ -11,7 +11,7 @@ function getSupabase() {
 // Lightweight scraper for Vercel (no Playwright, just RSS/HTML fetch)
 async function scrapeArbeitnow() {
   const jobs = [];
-  const keywords = (process.env.SEARCH_KEYWORDS || 'DevOps,Cloud,Full Stack,Data Engineer,AI Engineer').split(',');
+  const keywords = (process.env.SEARCH_KEYWORDS || 'DevOps,Cloud,Full Stack,Data Engineer,AI Engineer,Data Analyst,Data Scientist').split(',');
 
   for (const keyword of keywords) {
     try {

@@ -29,6 +29,8 @@ target_roles:
   - Full Stack Developer
   - Data Engineer
   - AI Engineer
+  - Data Analyst
+  - Data Scientist
 
 target_locations:
   - Switzerland
