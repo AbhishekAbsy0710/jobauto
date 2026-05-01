@@ -5,14 +5,13 @@
  */
 process.env.PLAYWRIGHT_BROWSERS_PATH = '0'; // Use local project browsers
 import { chromium } from 'playwright';
-import Database from 'better-sqlite3';
+import { createClient } from '@supabase/supabase-js';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
-const DB_PATH = join(ROOT, 'db', 'jobauto.db');
 const RESUME_PATH = join(ROOT, 'resume', 'resume.pdf');
 
 // Load .env
@@ -222,18 +221,45 @@ async function clickSubmit(page) {
 // MAIN
 // ============================================
 async function main() {
-  const db = new Database(DB_PATH);
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !supabaseKey) {
+    console.error('Missing Supabase credentials');
+    process.exit(1);
+  }
+  const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
 
-  const jobs = db.prepare(`
-    SELECT j.*, e.id as eval_id, e.letter_grade, e.weighted_score, e.matching_skills
-    FROM jobs j JOIN evaluations e ON e.job_id = j.id
-    WHERE j.status IN ('auto_queue','manual_queue') AND e.letter_grade IN ('A','B')
-    ORDER BY e.weighted_score DESC
-  `).all();
+  // Get jobs joined with evaluations
+  const { data: rawJobs, error } = await supabase
+    .from('jobs')
+    .select('*, evaluations!inner(id, letter_grade, weighted_score, matching_skills)')
+    .in('status', ['auto_queue', 'manual_queue']);
+
+  if (error) {
+    console.error('Error fetching jobs:', error.message);
+    process.exit(1);
+  }
+
+  // Filter and map to flat structure like the old SQL query
+  let jobs = (rawJobs || [])
+    .filter(j => {
+      const grade = Array.isArray(j.evaluations) ? j.evaluations[0]?.letter_grade : j.evaluations?.letter_grade;
+      return grade === 'A' || grade === 'B';
+    })
+    .map(j => {
+      const e = Array.isArray(j.evaluations) ? j.evaluations[0] : j.evaluations;
+      return {
+        ...j,
+        eval_id: e.id,
+        letter_grade: e.letter_grade,
+        weighted_score: e.weighted_score,
+        matching_skills: e.matching_skills
+      };
+    })
+    .sort((a, b) => b.weighted_score - a.weighted_score);
 
   if (jobs.length === 0) {
     console.log('📭 No jobs in the apply queue');
-    db.close();
     return;
   }
 
@@ -289,9 +315,14 @@ async function main() {
         appliedJobs.push(job);
 
         // Record in DB
-        db.prepare(`INSERT OR IGNORE INTO applications (evaluation_id, method, status, pdf_path, applied_at)
-          VALUES (?, 'auto', 'submitted', ?, datetime('now'))`).run(job.eval_id, RESUME_PATH);
-        db.prepare(`UPDATE jobs SET status = 'applied' WHERE id = ?`).run(job.id);
+        await supabase.from('applications').insert({
+          evaluation_id: job.eval_id,
+          method: 'auto',
+          status: 'submitted',
+          pdf_path: RESUME_PATH,
+          applied_at: new Date().toISOString()
+        });
+        await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id);
       } else {
         console.log('  ⚠️ May need manual review — form filled but submit uncertain');
         results.skipped++;
@@ -307,7 +338,6 @@ async function main() {
   }
 
   await browser.close();
-  db.close();
 
   // Summary
   console.log(`\n${'━'.repeat(50)}`);
