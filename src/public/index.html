@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JobAuto v2 — CareerOps Dashboard</title>
+  <meta name="description" content="AI-powered job matching with A-F scoring, tailored PDF resumes, and career portal scanning">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="header" id="main-header">
+    <div class="header-left">
+      <h1 class="logo">
+        <span class="logo-icon">⚡</span>
+        <span>JobAuto</span>
+        <span class="version-badge">v2</span>
+      </h1>
+      <span class="subtitle">CareerOps Enhanced</span>
+    </div>
+    <div class="header-right">
+      <div class="health-indicator" id="health-dot">
+        <span class="health-dot"></span>
+        <span id="health-text">Checking...</span>
+      </div>
+      <button class="btn btn-sm btn-outline" id="btn-scrape" onclick="triggerScrape()">
+        <span>🔍</span> Scrape
+      </button>
+      <button class="btn btn-sm btn-primary" id="btn-evaluate" onclick="triggerEvaluate()">
+        <span>🤖</span> Evaluate
+      </button>
+      <button class="btn btn-sm btn-success" id="btn-apply" onclick="triggerApply()">
+        <span>🚀</span> Auto-Apply
+      </button>
+    </div>
+  </header>
+
+  <!-- STATS BAR -->
+  <section class="stats-bar" id="stats-bar">
+    <div class="stat-card" id="stat-total">
+      <div class="stat-value" id="sv-total">0</div>
+      <div class="stat-label">Total Jobs</div>
+    </div>
+    <div class="stat-card stat-green" id="stat-apply">
+      <div class="stat-value" id="sv-apply">0</div>
+      <div class="stat-label">Apply</div>
+    </div>
+    <div class="stat-card stat-yellow" id="stat-review">
+      <div class="stat-value" id="sv-review">0</div>
+      <div class="stat-label">Review</div>
+    </div>
+    <div class="stat-card stat-red" id="stat-skip">
+      <div class="stat-value" id="sv-skip">0</div>
+      <div class="stat-label">Skip</div>
+    </div>
+    <div class="stat-card stat-blue" id="stat-applied">
+      <div class="stat-value" id="sv-applied">0</div>
+      <div class="stat-label">Applied</div>
+    </div>
+    <div class="stat-card stat-purple" id="stat-interviews">
+      <div class="stat-value" id="sv-interviews">0</div>
+      <div class="stat-label">Interviews</div>
+    </div>
+    <div class="stat-card" id="stat-avg">
+      <div class="stat-value" id="sv-avg">0</div>
+      <div class="stat-label">Avg Score</div>
+    </div>
+  </section>
+
+  <!-- GRADE DISTRIBUTION -->
+  <section class="grade-bar" id="grade-bar"></section>
+
+  <!-- TAB BAR -->
+  <nav class="tab-bar" id="tab-bar">
+    <button class="tab active" id="tab-jobs" onclick="switchTab('jobs')">📋 All Jobs</button>
+    <button class="tab" id="tab-applied" onclick="switchTab('applied')">✅ Applied</button>
+    <button class="tab" id="tab-queue" onclick="switchTab('queue')">🚀 Auto-Queue</button>
+    <button class="tab" id="tab-review" onclick="switchTab('review')">👋 Review</button>
+    <button class="tab" id="tab-skip" onclick="switchTab('skip')">⛔ Skip</button>
+  </nav>
+
+  <!-- FILTERS -->
+  <section class="filter-bar" id="filter-bar">
+    <div class="filter-group">
+      <input type="text" class="filter-input" id="filter-search" placeholder="Search titles, companies..." oninput="debounceFilter()">
+    </div>
+    <div class="filter-group">
+      <select class="filter-select" id="filter-grade" onchange="filterJobs()">
+        <option value="">All Grades</option>
+        <option value="A">🏆 Grade A</option>
+        <option value="B">🔥 Grade B</option>
+        <option value="C">⚡ Grade C</option>
+        <option value="D">📋 Grade D</option>
+        <option value="F">⛔ Grade F</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <select class="filter-select" id="filter-platform" onchange="filterJobs()">
+        <option value="">All Platforms</option>
+        <option value="arbeitnow">Arbeitnow</option>
+        <option value="remoteok">RemoteOK</option>
+        <option value="greenhouse">🌿 Greenhouse</option>
+        <option value="lever">🔷 Lever</option>
+        <option value="ashby">🟣 Ashby</option>
+        <option value="linkedin">💼 LinkedIn</option>
+        <option value="indeed">🔍 Indeed</option>
+        <option value="stepstone">🪜 StepStone</option>
+        <option value="glassdoor">🏢 Glassdoor</option>
+        <option value="xing">🇩🇪 Xing</option>
+      </select>
+    </div>
+  </section>
+
+  <!-- JOB CARDS -->
+  <main class="job-grid" id="job-grid">
+    <div class="loading-state" id="loading-state">
+      <div class="spinner"></div>
+      <p>Loading jobs...</p>
+    </div>
+  </main>
+
+  <!-- APPLIED JOBS TABLE -->
+  <section class="applied-section" id="applied-section" style="display:none;">
+    <div class="applied-header">
+      <h2>✅ Applied Jobs</h2>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="applied-count" id="applied-count">0 applications</span>
+        <a href="/api/resume" target="_blank" class="btn btn-sm btn-outline" style="text-decoration:none;">📄 View Resume</a>
+      </div>
+    </div>
+    <div class="applied-table-wrap">
+      <table class="applied-table" id="applied-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Company</th>
+            <th>Position</th>
+            <th>Location</th>
+            <th>Platform</th>
+            <th>Method</th>
+            <th>Grade</th>
+            <th>Score</th>
+            <th>Resume</th>
+            <th>Job Link</th>
+          </tr>
+        </thead>
+        <tbody id="applied-tbody"></tbody>
+      </table>
+      <div class="empty-state" id="applied-empty" style="display:none;">
+        <p>📭 No applications submitted yet</p>
+        <p class="subtext">Click 🚀 Auto-Apply or wait for the scheduled pipeline</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- AUTO-QUEUE SECTION -->
+  <section class="applied-section" id="queue-section" style="display:none;">
+    <div class="applied-header">
+      <h2>🚀 Auto-Apply Queue</h2>
+      <span class="applied-count" id="queue-count">0 queued</span>
+    </div>
+    <div class="applied-table-wrap">
+      <table class="applied-table" id="queue-table">
+        <thead>
+          <tr>
+            <th>Company</th>
+            <th>Position</th>
+            <th>Location</th>
+            <th>Platform</th>
+            <th>Grade</th>
+            <th>Score</th>
+            <th>Skills Match</th>
+            <th>Link</th>
+          </tr>
+        </thead>
+        <tbody id="queue-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- JOB DETAIL MODAL -->
+  <div class="modal-overlay" id="modal-overlay" onclick="closeModal()">
+    <div class="modal" id="job-modal" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeModal()">✕</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

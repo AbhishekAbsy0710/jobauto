@@ -1,0 +1,146 @@
+# ============================================
+# JobAuto — Career Profile Configuration
+# Customize this file with your details.
+# ============================================
+
+identity:
+  name: "Abhishek Raj Pagadala"
+  email: ""
+  location: "Switzerland"
+  work_authorization: "EU Blue Card / Swiss Work Permit"
+  languages:
+    - English (Fluent)
+    - Hindi (Native)
+    - German (B1)
+
+# Your career narrative — what makes you unique
+narrative: |
+  Full-stack engineer with 4+ years spanning DevOps, cloud infrastructure,
+  and AI/ML integration. Built and deployed production systems at Ayonic GmbH
+  handling Azure infrastructure, CI/CD pipelines, and Flutter mobile apps.
+  Currently expanding into AI engineering with hands-on RAG, LLM fine-tuning,
+  and data pipeline experience. Looking for roles that combine infrastructure
+  expertise with applied AI.
+
+# Target roles — these map to archetypes for scoring
+target_roles:
+  - DevOps Engineer
+  - Cloud Engineer
+  - Full Stack Developer
+  - Data Engineer
+  - AI Engineer
+
+target_locations:
+  - Switzerland
+  - Germany
+  - Luxembourg
+  - Netherlands
+  - Austria
+  - Belgium
+  - France
+  - Remote
+
+# Salary expectations (used for Compensation Fit scoring)
+compensation:
+  min_annual_eur: 65000
+  target_annual_eur: 85000
+  currency: EUR
+  open_to_equity: true
+
+# Deal breakers — auto-score F on these
+deal_breakers:
+  - "Unpaid internship"
+  - "Commission only"
+  - "No remote option and location outside EU"
+
+# Preferences — boost scoring on these
+preferences:
+  remote_preference: "hybrid_or_remote"  # onsite | hybrid | remote | hybrid_or_remote
+  company_size: "any"                     # startup | mid | enterprise | any
+  industry_preference:
+    - "AI/ML"
+    - "Cloud/SaaS"
+    - "DevTools"
+    - "FinTech"
+
+# Scoring dimension weights (must sum to 1.0)
+scoring_weights:
+  technical_fit: 0.20
+  seniority_alignment: 0.15
+  domain_relevance: 0.15
+  growth_potential: 0.10
+  company_signal: 0.10
+  compensation_fit: 0.10
+  location_remote: 0.05
+  cultural_indicators: 0.05
+  tech_stack_freshness: 0.05
+  visa_sponsorship: 0.05
+
+# Core skills — the AI uses these to match (ranked by proficiency)
+core_skills:
+  infrastructure:
+    - Azure (App Service, Functions, CosmosDB, DevOps)
+    - Terraform
+    - Docker
+    - Kubernetes
+    - Nginx
+    - Cloudflare
+    - Linux (Ubuntu/Debian)
+  cicd:
+    - GitHub Actions
+    - Azure DevOps Pipelines
+    - ArgoCD
+    - Jenkins
+  backend:
+    - PHP / Laravel
+    - Python / Django
+    - Node.js / Express
+    - REST APIs
+    - PostgreSQL / MySQL / MongoDB / SQLite
+  frontend:
+    - Flutter / Dart
+    - React / JavaScript
+    - HTML / CSS
+  ai_ml:
+    - RAG pipelines
+    - LLM integration (Hugging Face, OpenAI, Ollama)
+    - Prompt Engineering
+    - Transformers
+    - Jupyter / Python data stack
+  data:
+    - PowerBI
+    - R
+    - Pandas
+    - Power Apps / Power Automate
+  payments:
+    - Stripe
+    - PayPal
+    - Webhooks
+
+# Archetypes — the system classifies each job into one of these
+archetypes:
+  devops:
+    keywords: [DevOps, SRE, Infrastructure, Platform, CI/CD, Terraform, Kubernetes, Docker]
+    weight_overrides:
+      technical_fit: 0.25
+      seniority_alignment: 0.15
+  cloud:
+    keywords: [Cloud, Azure, AWS, GCP, Solutions Architect, Cloud Engineer]
+    weight_overrides:
+      technical_fit: 0.25
+      domain_relevance: 0.20
+  data:
+    keywords: [Data Engineer, Data Pipeline, ETL, dbt, Airflow, Analytics, Data Science]
+    weight_overrides:
+      domain_relevance: 0.20
+      tech_stack_freshness: 0.10
+  ai:
+    keywords: [AI Engineer, ML Engineer, LLM, NLP, Machine Learning, Deep Learning, RAG]
+    weight_overrides:
+      technical_fit: 0.20
+      growth_potential: 0.15
+  fullstack:
+    keywords: [Full Stack, Frontend, Backend, Web Developer, Software Engineer]
+    weight_overrides:
+      technical_fit: 0.20
+      cultural_indicators: 0.10

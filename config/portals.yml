@@ -1,0 +1,135 @@
+# ============================================
+# JobAuto — Career Portal Scanner Configuration
+# 45+ European & Global Tech Companies
+# ============================================
+
+# Greenhouse boards (boards.greenhouse.io/{board_id})
+greenhouse:
+  # AI Labs
+  - board_id: anthropic
+    name: Anthropic
+  - board_id: openai
+    name: OpenAI
+  - board_id: mistral
+    name: Mistral AI
+  - board_id: cohere
+    name: Cohere
+  - board_id: langchain
+    name: LangChain
+  - board_id: pinecone
+    name: Pinecone
+  - board_id: huggingface
+    name: Hugging Face
+  - board_id: deepmind
+    name: Google DeepMind
+  - board_id: elevenlabs
+    name: ElevenLabs
+  - board_id: deepgram
+    name: Deepgram
+  # DevTools & Platforms
+  - board_id: vercel
+    name: Vercel
+  - board_id: retool
+    name: Retool
+  - board_id: temporal
+    name: Temporal
+  - board_id: grafana
+    name: Grafana Labs
+  - board_id: hashicorp
+    name: HashiCorp
+  - board_id: datadog
+    name: Datadog
+  - board_id: snyk
+    name: Snyk
+  - board_id: gitlabinc
+    name: GitLab
+  - board_id: sentry
+    name: Sentry
+  # European Tech
+  - board_id: n8n
+    name: n8n (Berlin)
+  - board_id: factorial
+    name: Factorial
+  - board_id: personio
+    name: Personio (Munich)
+  - board_id: celonis
+    name: Celonis (Munich)
+  - board_id: contentful
+    name: Contentful (Berlin)
+  - board_id: flixbus
+    name: FlixBus (Munich)
+  - board_id: deliveryhero
+    name: Delivery Hero (Berlin)
+  - board_id: wefox
+    name: Wefox (Berlin)
+  - board_id: gorillasapp
+    name: Gorillas (Berlin)
+  # Swiss Companies
+  - board_id: scandit
+    name: Scandit (Zurich)
+  - board_id: numbrs
+    name: Numbrs (Zurich)
+  - board_id: abb
+    name: ABB
+  # Finance & Enterprise
+  - board_id: coinbase
+    name: Coinbase
+  - board_id: brex
+    name: Brex
+  - board_id: navan
+    name: Navan
+  - board_id: dbt
+    name: dbt Labs
+  - board_id: airbyte
+    name: Airbyte
+
+# Lever boards (jobs.lever.co/{company})
+lever:
+  - company_id: cloudflare
+    name: Cloudflare
+  - company_id: netlify
+    name: Netlify
+  - company_id: twilio
+    name: Twilio
+  - company_id: stripe
+    name: Stripe
+  - company_id: databricks
+    name: Databricks
+  - company_id: spotify
+    name: Spotify (Stockholm)
+  - company_id: soundcloud
+    name: SoundCloud (Berlin)
+  - company_id: ecosia
+    name: Ecosia (Berlin)
+
+# Ashby boards (jobs.ashbyhq.com/{company})
+ashby:
+  - company_id: langfuse
+    name: Langfuse
+  - company_id: linear
+    name: Linear
+  - company_id: resend
+    name: Resend
+  - company_id: supabase
+    name: Supabase
+  - company_id: railway
+    name: Railway
+  - company_id: cal
+    name: Cal.com
+  - company_id: plane
+    name: Plane
+
+# Filter scanned jobs by these keywords
+filter_keywords:
+  - DevOps
+  - Cloud
+  - Infrastructure
+  - Platform
+  - Backend
+  - Full Stack
+  - Data Engineer
+  - AI Engineer
+  - ML Engineer
+  - SRE
+  - Site Reliability
+  - Software Engineer

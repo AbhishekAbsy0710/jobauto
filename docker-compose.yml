@@ -1,0 +1,58 @@
+version: '3.8'
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: jobauto-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=jobauto2026
+      - GENERIC_TIMEZONE=Europe/Berlin
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - jobauto-net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: jobauto-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - jobauto-net
+
+  app:
+    build: .
+    container_name: jobauto-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.1:8b
+      - PORT=3000
+      - SEARCH_KEYWORDS=DevOps Engineer,Cloud Engineer,Full Stack Developer,Data Engineer,AI Engineer
+      - SEARCH_LOCATIONS=Switzerland,Germany,Remote
+    volumes:
+      - ./db:/app/db
+      - ./resume:/app/resume
+      - ./output:/app/output
+      - ./config:/app/config
+    depends_on:
+      - ollama
+    networks:
+      - jobauto-net
+
+volumes:
+  n8n_data:
+  ollama_data:
+
+networks:
+  jobauto-net:
+    driver: bridge

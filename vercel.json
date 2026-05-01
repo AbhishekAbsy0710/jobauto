@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "buildCommand": "npm install --production",
+  "outputDirectory": "src/public",
+  "rewrites": [
+    { "source": "/api/stats", "destination": "/api/stats" },
+    { "source": "/api/jobs", "destination": "/api/jobs" },
+    { "source": "/api/jobs/:id", "destination": "/api/jobs?id=:id" },
+    { "source": "/api/applications", "destination": "/api/applications" },
+    { "source": "/api/health", "destination": "/api/health" },
+    { "source": "/api/resume", "destination": "/api/resume" },
+    { "source": "/api/cron/:path*", "destination": "/api/cron/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/**/*.js": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/scrape",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/evaluate",
+      "schedule": "30 */6 * * *"
+    }
+  ]
+}

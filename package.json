@@ -1,0 +1,27 @@
+{
+  "name": "jobauto",
+  "version": "2.0.0",
+  "description": "AI-powered CareerOps Pipeline — A-F scoring, tailored PDFs, portal scanning",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.cjs",
+    "dev": "node --watch src/server.cjs",
+    "scrape": "node src/scripts/scrape-now.js",
+    "evaluate": "node src/scripts/evaluate-now.js",
+    "setup-db": "node src/database.js --setup"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.1",
+    "better-sqlite3": "^11.7.0",
+    "express": "^4.21.0",
+    "js-yaml": "^4.1.0",
+    "marked": "^15.0.0",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2",
+    "pg": "^8.20.0"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.49.0"
+  },
+  "type": "module"
+}
