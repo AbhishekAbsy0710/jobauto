@@ -18,7 +18,8 @@
     "marked": "^15.0.0",
     "node-cron": "^3.0.3",
     "node-fetch": "^3.3.2",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "tweetnacl": "^1.0.3"
   },
   "optionalDependencies": {
     "playwright": "^1.49.0"

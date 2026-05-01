@@ -64,6 +64,7 @@ export default async function handler(req, res) {
 
   let evaluated = 0;
   let errors = 0;
+  const reviewJobs = []; // Track C-grade jobs for manual approval
 
   const systemPrompt = `You are a Career-Ops Job Evaluation Agent. Evaluate job listings using A-F scoring across 10 dimensions.
 OUTPUT ONLY JSON: {"archetype":"DevOps|Cloud|Data|AI|FullStack|Other","dimension_scores":{"technical_fit":{"grade":"A-F","reason":"brief"},"seniority_alignment":{"grade":"A-F","reason":"brief"},"domain_relevance":{"grade":"A-F","reason":"brief"},"growth_potential":{"grade":"A-F","reason":"brief"},"company_signal":{"grade":"A-F","reason":"brief"},"compensation_fit":{"grade":"A-F","reason":"brief"},"location_remote":{"grade":"A-F","reason":"brief"},"cultural_indicators":{"grade":"A-F","reason":"brief"},"tech_stack_freshness":{"grade":"A-F","reason":"brief"},"visa_sponsorship":{"grade":"A-F","reason":"brief"}},"matching_skills":["skill"],"missing_skills":["skill"],"resume_improvements":["suggestion"],"star_stories":[{"situation":"...","task":"...","action":"...","result":"..."}],"reason":"summary"}`;
@@ -129,6 +130,10 @@ OUTPUT ONLY JSON: {"archetype":"DevOps|Cloud|Data|AI|FullStack|Other","dimension
       evaluated++;
       console.log(`  ✅ ${job.title} → ${letterGrade} (${score})`);
 
+      if (status === 'manual_queue') {
+        reviewJobs.push({ id: job.id, title: job.title, company: job.company, grade: letterGrade, score, link: job.apply_link });
+      }
+
       // Rate limit: 30 req/min for Groq
       await new Promise(r => setTimeout(r, 2200));
     } catch (e) {
@@ -140,7 +145,44 @@ OUTPUT ONLY JSON: {"archetype":"DevOps|Cloud|Data|AI|FullStack|Other","dimension
   const result = { evaluated, errors, total: unevaluated.length, timestamp: new Date().toISOString() };
   console.log('✅ Evaluate complete:', result);
 
-  // Discord notification
+  // Send interactive Discord notifications for C-grade (Review) jobs
+  if (process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_CHANNEL_ID && reviewJobs.length > 0) {
+    for (const rj of reviewJobs) {
+      await fetch(`https://discord.com/api/v10/channels/${process.env.DISCORD_CHANNEL_ID}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          embeds: [{
+            title: `⚠️ Manual Approval Required: ${rj.grade}-Grade`,
+            color: 0xffd93d,
+            description: `**${rj.title}** at **${rj.company}**\nScore: ${rj.score}/5.0\n[View Job Description](${rj.link})`,
+          }],
+          components: [{
+            type: 1, // ActionRow
+            components: [
+              {
+                type: 2, // Button
+                style: 3, // Success (Green)
+                label: 'Approve',
+                custom_id: `approve_${rj.id}`
+              },
+              {
+                type: 2, // Button
+                style: 4, // Danger (Red)
+                label: 'Reject',
+                custom_id: `reject_${rj.id}`
+              }
+            ]
+          }]
+        })
+      }).catch(e => console.error('Discord bot error:', e));
+    }
+  }
+
+  // Summary Discord notification (Fallback/Summary via webhook)
   const webhook = process.env.DISCORD_WEBHOOK_URL;
   if (webhook && evaluated > 0) {
     await fetch(webhook, {
@@ -151,7 +193,7 @@ OUTPUT ONLY JSON: {"archetype":"DevOps|Cloud|Data|AI|FullStack|Other","dimension
         embeds: [{
           title: '🤖 Evaluation Complete',
           color: 0x00d2a0,
-          description: `Evaluated **${evaluated}** jobs using Groq llama-3.3-70b`,
+          description: `Evaluated **${evaluated}** jobs using Groq llama-3.3-70b\n*${reviewJobs.length}* jobs queued for manual review.`,
           timestamp: new Date().toISOString(),
         }],
       }),

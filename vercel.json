@@ -1,5 +1,9 @@
 {
   "version": 2,
+  "buildCommand": "",
+  "installCommand": "npm install",
+  "outputDirectory": "public",
+  "framework": null,
   "rewrites": [
     { "source": "/api/jobs/:id(\\d+)", "destination": "/api/jobs?id=:id" }
   ],

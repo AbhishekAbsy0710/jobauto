@@ -233,7 +233,7 @@ async function main() {
   const { data: rawJobs, error } = await supabase
     .from('jobs')
     .select('*, evaluations!inner(id, letter_grade, weighted_score, matching_skills)')
-    .in('status', ['auto_queue', 'manual_queue']);
+    .eq('status', 'auto_queue');
 
   if (error) {
     console.error('Error fetching jobs:', error.message);
@@ -242,10 +242,6 @@ async function main() {
 
   // Filter and map to flat structure like the old SQL query
   let jobs = (rawJobs || [])
-    .filter(j => {
-      const grade = Array.isArray(j.evaluations) ? j.evaluations[0]?.letter_grade : j.evaluations?.letter_grade;
-      return grade === 'A' || grade === 'B';
-    })
     .map(j => {
       const e = Array.isArray(j.evaluations) ? j.evaluations[0] : j.evaluations;
       return {

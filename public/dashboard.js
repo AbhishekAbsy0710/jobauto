@@ -306,6 +306,7 @@ async function openJobModal(id) {
         <button class="btn btn-success" onclick="markApplied(${job.id})" ${job.status === 'applied' ? 'disabled' : ''}>
           ${job.status === 'applied' ? '✅ Applied' : '✅ Mark Applied'}
         </button>
+        ${job.status === 'manual_queue' ? `<button class="btn btn-success" onclick="updateStatus(${job.id}, 'auto_queue')">👍 Approve for Auto-Apply</button>` : ''}
         <button class="btn btn-outline" onclick="updateStatus(${job.id}, 'archived')">🗄️ Archive</button>
       </div>
     `;
