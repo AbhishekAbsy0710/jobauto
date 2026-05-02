@@ -17,7 +17,7 @@ const RESUME_PATH = join(ROOT, 'resume', 'resume.pdf');
 // Load .env
 try {
   const envFile = readFileSync(join(ROOT, '.env'), 'utf8');
-  envFile.split('\n').forEach(line => {
+  envFile.split('\\n').forEach(line => {
     const [k, ...v] = line.split('=');
     if (k && !k.startsWith('#')) process.env[k.trim()] = v.join('=').trim();
   });
@@ -89,7 +89,7 @@ async function fillDynamicFields(page) {
         labelText = Array.from(el.labels).map(l => l.innerText).join(' ');
       } else {
         const parent = el.closest('.field, .form-group, div');
-        if (parent) labelText = parent.innerText.split('\n')[0];
+        if (parent) labelText = parent.innerText.split('\\n')[0];
       }
 
       let options = [];
@@ -138,7 +138,7 @@ Rules:
 - If asking about Disability/Veteran, answer "Decline to answer" or "No".
 - If asking about salary, put "85000" or similar based on profile.`;
 
-  const userPrompt = `Form Fields:\n` + JSON.stringify(questions, null, 2);
+  const userPrompt = `Form Fields:\\n` + JSON.stringify(questions, null, 2);
 
   try {
     const res = await callGroq(sysPrompt, userPrompt);
@@ -147,10 +147,10 @@ Rules:
 
     for (const ans of data.answers) {
       try {
-        const selector = \`[name="\${ans.name}"]\`;
+        const selector = `[name="${ans.name}"]`;
         if (ans.type === 'radio' || ans.type === 'checkbox') {
           // Find the exact radio/checkbox by value
-          const specificSelector = \`\${selector}[value="\${ans.value}"]\`;
+          const specificSelector = `${selector}[value="${ans.value}"]`;
           await page.click(specificSelector, { timeout: 1000 }).catch(async () => {
              // Fallback if value isn't exact
              const els = await page.$$(selector);
@@ -161,11 +161,11 @@ Rules:
         } else {
           await page.fill(selector, ans.value);
         }
-        console.log(\`    ↳ Filled \${ans.name} -> \${ans.value}\`);
+        console.log(`    ↳ Filled ${ans.name} -> ${ans.value}`);
       } catch (e) {}
     }
   } catch (e) {
-    console.log(\`  ⚠️ AI fill error: \${e.message}\`);
+    console.log(`  ⚠️ AI fill error: ${e.message}`);
   }
 }
 
@@ -242,7 +242,7 @@ async function main() {
     return { ...j, eval_id: e.id, grade: e.letter_grade, score: e.weighted_score };
   }).sort((a, b) => b.score - a.score);
 
-  console.log(\`\\n🚀 Auto-applying to \${jobs.length} jobs via Playwright (AI Enabled)...\\n\`);
+  console.log(`\\\n🚀 Auto-applying to ${jobs.length} jobs via Playwright (AI Enabled)...\\\n`);
 
   const browser = await chromium.launch({ headless: true, slowMo: 100, timeout: 30000 });
   const context = await browser.newContext({
@@ -256,7 +256,7 @@ async function main() {
 
   for (const job of jobs) {
     const page = await context.newPage();
-    console.log(\`\\n━━━ \${job.title} @ \${job.company} ━━━\`);
+    console.log(`\\\n━━━ ${job.title} @ ${job.company} ━━━`);
 
     try {
       await page.goto(job.apply_link, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -308,7 +308,7 @@ async function main() {
       }
 
     } catch (e) {
-      console.log(\`  ❌ Failed: \${e.message}\`);
+      console.log(`  ❌ Failed: ${e.message}`);
       results.failed++;
       failedJobs.push(job);
       // Revert to manual_queue
@@ -320,15 +320,15 @@ async function main() {
 
   await browser.close();
 
-  console.log(\`\\n📊 Results: \${results.applied} applied, \${results.failed} failed/reverted\\n\`);
+  console.log(`\\\n📊 Results: ${results.applied} applied, ${results.failed} failed/reverted\\\n`);
 
   if (appliedJobs.length > 0) {
-    const list = appliedJobs.map(j => \`**\${j.title}** at \${j.company}\`).join('\\n');
-    await sendDiscord(\`✅ Auto-Applied to \${appliedJobs.length} Jobs\`, list, 0x00d2a0);
+    const list = appliedJobs.map(j => `**${j.title}** at ${j.company}`).join('\\\n');
+    await sendDiscord(`✅ Auto-Applied to ${appliedJobs.length} Jobs`, list, 0x00d2a0);
   }
   if (failedJobs.length > 0) {
-    const list = failedJobs.map(j => \`**\${j.title}** at \${j.company}\`).join('\\n');
-    await sendDiscord(\`⚠️ \${failedJobs.length} Jobs Failed Auto-Apply\`, \`These encountered form validation errors and have been moved back to the **Manual Queue**.\\n\\n\${list}\`, 0xff4500);
+    const list = failedJobs.map(j => `**${j.title}** at ${j.company}`).join('\\\n');
+    await sendDiscord(`⚠️ ${failedJobs.length} Jobs Failed Auto-Apply`, `These encountered form validation errors and have been moved back to the **Manual Queue**.\\\n\\\n${list}`, 0xff4500);
   }
 }
 
