@@ -25,17 +25,14 @@ async function checkHealth() {
     const dot = document.querySelector('.health-dot');
     const text = document.getElementById('health-text');
 
-    if (data.ollama?.healthy && data.ollama?.hasModel) {
+    if (data.llm === 'groq') {
       dot.classList.add('online');
       dot.classList.remove('offline');
-      text.textContent = 'Ollama Online';
-    } else if (data.ollama?.healthy) {
-      dot.classList.remove('online', 'offline');
-      text.textContent = 'Model Missing';
+      text.textContent = 'Groq API Active';
     } else {
       dot.classList.add('offline');
       dot.classList.remove('online');
-      text.textContent = 'Ollama Offline';
+      text.textContent = 'Groq API Missing';
     }
   } catch {
     const dot = document.querySelector('.health-dot');
@@ -306,7 +303,7 @@ async function openJobModal(id) {
         <button class="btn btn-success" onclick="markApplied(${job.id})" ${job.status === 'applied' ? 'disabled' : ''}>
           ${job.status === 'applied' ? '✅ Applied' : '✅ Mark Applied'}
         </button>
-        ${job.status === 'manual_queue' ? `<button class="btn btn-success" onclick="updateStatus(${job.id}, 'auto_queue')">👍 Approve for Auto-Apply</button>` : ''}
+        <button class="btn btn-outline" style="border-color: #4da6ff; color: #4da6ff;" onclick="updateStatus(${job.id}, 'auto_queue')">🚀 Send to Auto-Apply</button>
         <button class="btn btn-outline" onclick="updateStatus(${job.id}, 'archived')">🗄️ Archive</button>
       </div>
     `;
@@ -557,7 +554,11 @@ async function loadApplied() {
           <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${(a.method || 'manual').toUpperCase()}</span></td>
           <td><span class="grade-badge grade-${a.letter_grade}" style="font-size:12px;width:28px;height:28px;">${a.letter_grade || '?'}</span></td>
           <td style="font-weight:600;">${a.weighted_score ? a.weighted_score.toFixed(1) : '?'}/5</td>
-          <td><a href="/api/resume" target="_blank" style="color:#4da6ff;text-decoration:none;" title="View resume used">📄 PDF</a></td>
+          <td>
+            <a href="/api/resume" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;" title="View resume used">📄 ${a.pdf_path ? a.pdf_path.split('/').pop() : 'resume.pdf'}</a>
+            <br>
+            <a href="https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${a.app_id}.jpeg" target="_blank" style="color:#ffd93d;text-decoration:none;font-size:11px;font-weight:500;" title="View Submission Proof">📸 View Proof</a>
+          </td>
           <td>${a.apply_link ? '<a href="' + a.apply_link + '" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View Job</a>' : '—'}</td>
         </tr>
       `;
