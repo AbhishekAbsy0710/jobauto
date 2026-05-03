@@ -151,7 +151,9 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
 - Notice Period: Always answer "1 month" or "4 weeks" or "Immediate" depending on the options.
 - Salary Expectations: Put "55000" (or 55,000 depending on the form).
 - Disability/Veteran: Always answer "Decline to answer", "Prefer not to say", or "No".
-- If the question asks for a link (LinkedIn/GitHub/Portfolio), you MUST use exactly the URL provided above. ALWAYS include https:// otherwise the form will fail validation.`;
+- If the question asks for a link (LinkedIn/GitHub/Portfolio), you MUST use exactly the URL provided above. ALWAYS include https:// otherwise the form will fail validation.
+- DO NOT use actual newlines inside the JSON strings. Use literal "\\n" if you must break lines. Unescaped newlines will break the JSON parser.
+- Escape all double quotes inside your answers using \\"`;
 
   const userPrompt = `Form Fields:\n` + JSON.stringify(questions, null, 2);
 
@@ -159,7 +161,13 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
     const res = await callGroq(sysPrompt, userPrompt);
     const match = res.match(/\{[\s\S]*\}/);
     if (!match) throw new Error("No JSON found");
-    const data = JSON.parse(match[0]);
+    
+    // Fix common unescaped newlines in JSON strings before parsing
+    let jsonString = match[0];
+    // This is a basic cleanup to prevent JSON.parse from failing on unescaped newlines within values
+    jsonString = jsonString.replace(/(?<=:\s*")(.*?)(?="(?:\s*\}|\s*,))/gs, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, ''));
+
+    const data = JSON.parse(jsonString);
     if (!data.answers) return;
 
     for (const ans of data.answers) {
@@ -168,18 +176,26 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
         if (ans.type === 'radio' || ans.type === 'checkbox') {
           // Find the exact radio/checkbox by value
           const specificSelector = `${selector}[value="${ans.value}"]`;
-          await page.click(specificSelector, { timeout: 1000 }).catch(async () => {
+          await page.click(specificSelector, { timeout: 1000, force: true }).catch(async () => {
              // Fallback if value isn't exact
              const els = await page.$$(selector);
-             if (els.length > 0) await els[0].check().catch(()=>{});
+             if (els.length > 0) await els[0].check({ force: true }).catch(()=>{});
           });
         } else if (ans.type === 'select' || ans.type === 'select-one') {
-          await page.selectOption(selector, { value: ans.value }).catch(() => page.selectOption(selector, { label: ans.value }));
+          await page.selectOption(selector, { value: ans.value }, { force: true }).catch(() => page.selectOption(selector, { label: ans.value }, { force: true }));
         } else {
-          await page.fill(selector, ans.value);
+          // Check if it's actually a select
+          const isSelect = await page.$eval(selector, el => el.tagName === 'SELECT').catch(()=>false);
+          if (isSelect) {
+            await page.selectOption(selector, { value: ans.value }, { force: true }).catch(() => page.selectOption(selector, { label: ans.value }, { force: true }));
+          } else {
+            await page.fill(selector, ans.value, { force: true });
+          }
         }
         console.log(`    ↳ Filled ${ans.name} -> ${ans.value}`);
-      } catch (e) {}
+      } catch (e) {
+        console.log(`    ↳ ⚠️ Failed to fill ${ans.name}: ${e.message}`);
+      }
     }
   } catch (e) {
     console.log(`  ⚠️ AI fill error: ${e.message}`);
