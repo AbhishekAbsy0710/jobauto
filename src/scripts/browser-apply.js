@@ -19,7 +19,7 @@ const RESUME_PATH = join(ROOT, 'resume', 'resume.pdf');
 // Load .env
 try {
   const envFile = readFileSync(join(ROOT, '.env'), 'utf8');
-  envFile.split('\\n').forEach(line => {
+  envFile.split('\n').forEach(line => {
     const [k, ...v] = line.split('=');
     if (k && !k.startsWith('#')) process.env[k.trim()] = v.join('=').trim();
   });

@@ -64,6 +64,55 @@ async function scrapeRemotive() {
   return jobs;
 }
 
+async function scrapeJSearch() {
+  const jobs = [];
+  const apiKey = process.env.JSEARCH_API_KEY;
+  if (!apiKey) return jobs;
+
+  // JSearch free tier limit is 50 requests/month.
+  // Since cron runs every 6 hours (120 runs/month), we only run JSearch once a day randomly.
+  if (Math.random() > 0.3) {
+    console.log('Skipping JSearch this run to conserve API credits (runs ~once daily).');
+    return jobs;
+  }
+
+  try {
+    const keywords = (process.env.SEARCH_KEYWORDS || 'Data Engineer,Software Engineer').split(',');
+    const randomKeyword = keywords[Math.floor(Math.random() * keywords.length)].trim();
+    const query = encodeURIComponent(`${randomKeyword} in Europe`);
+
+    console.log(`🔍 JSearch: Querying "${randomKeyword} in Europe"`);
+    
+    const res = await fetch(`https://jsearch.p.rapidapi.com/search?query=${query}&page=1&num_pages=1`, {
+      headers: {
+        'X-RapidAPI-Key': apiKey,
+        'X-RapidAPI-Host': 'jsearch.p.rapidapi.com'
+      },
+      signal: AbortSignal.timeout(15000)
+    });
+    
+    if (!res.ok) throw new Error(`API Error: ${res.status}`);
+    const data = await res.json();
+    
+    for (const j of (data.data || [])) {
+      jobs.push({
+        title: j.job_title,
+        company: j.employer_name,
+        location: `${j.job_city || ''} ${j.job_country || ''}`.trim() || 'Remote',
+        description: (j.job_description || '').slice(0, 3000),
+        apply_link: j.job_apply_link || j.job_google_link,
+        platform: j.job_publisher || 'JSearch',
+        remote: j.job_is_remote || false,
+        tags: [],
+        source_id: `jsearch_${j.job_id}`,
+      });
+    }
+  } catch (e) {
+    console.error('JSearch error:', e.message);
+  }
+  return jobs;
+}
+
 export default async function handler(req, res) {
   // Verify cron secret (Vercel sends this header)
   const authHeader = req.headers.authorization;
@@ -77,13 +126,14 @@ export default async function handler(req, res) {
   console.log('🔄 Cron scrape starting...');
   const sb = getSupabase();
 
-  const [arbeitnow, remotive] = await Promise.all([
+  const [arbeitnow, remotive, jsearch] = await Promise.all([
     scrapeArbeitnow(),
     scrapeRemotive(),
+    scrapeJSearch(),
   ]);
 
-  const allJobs = [...arbeitnow, ...remotive];
-  console.log(`📦 Found ${allJobs.length} jobs (${arbeitnow.length} ArbeitNow, ${remotive.length} Remotive)`);
+  const allJobs = [...arbeitnow, ...remotive, ...jsearch];
+  console.log(`📦 Found ${allJobs.length} jobs (${arbeitnow.length} ArbeitNow, ${remotive.length} Remotive, ${jsearch.length} JSearch)`);
 
   let inserted = 0;
   let skipped = 0;
@@ -124,6 +174,30 @@ export default async function handler(req, res) {
       }),
     }).catch(() => {});
   }
+
+async function cleanupScreenshots(sb) {
+  try {
+    const { data: files, error } = await sb.storage.from('screenshots').list();
+    if (error || !files) return;
+    
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    
+    const toDelete = files
+      .filter(f => f.name !== '.emptyFolderPlaceholder' && new Date(f.created_at) < threeDaysAgo)
+      .map(f => f.name);
+      
+    if (toDelete.length > 0) {
+      await sb.storage.from('screenshots').remove(toDelete);
+      console.log(`🧹 Cleaned up ${toDelete.length} old screenshots`);
+    }
+  } catch (e) {
+    console.error('Failed to cleanup screenshots:', e);
+  }
+}
+
+  // Cleanup old screenshots (runs every 6 hours)
+  await cleanupScreenshots(sb);
 
   res.json(result);
 }
