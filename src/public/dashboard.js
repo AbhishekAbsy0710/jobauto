@@ -138,9 +138,14 @@ function renderJobs(jobs) {
         <div class="score-bar-container">
           <div class="score-bar"><div class="score-bar-fill" style="width:${scorePct}%;background:${barColor}"></div></div>
           <div class="score-text">
-            <span>${scoreDisplay}</span>
+            <span>ATS Score: ${scoreDisplay}</span>
             <span>${job.priority || ''}</span>
           </div>
+          ${job.status === 'applied' && job.applications && job.applications.length > 0 ? `
+          <div style="font-size: 11px; color: var(--text-secondary); margin-top: 6px;">
+            <span style="color:#00d2a0">📄 Resume Changes:</span> ${esc(job.applications[job.applications.length - 1].method && job.applications[job.applications.length - 1].method.includes('|') ? job.applications[job.applications.length - 1].method.split('|')[1].trim() : 'Base Resume (No modifications)')}
+          </div>
+          ` : ''}
         </div>
 
         ${matchingSkills.length ? `
@@ -262,8 +267,15 @@ async function openJobModal(id) {
           <span class="tag tag-action ${(ev.action||'').toLowerCase()}">${actionIcon(ev.action)} ${esc(ev.action)}</span>
           <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">⚠️ ${ev.risk_level} Risk</span>
           <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">🎯 ${ev.priority}</span>
-          <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">⭐ ${ev.weighted_score}/5.0</span>
+          <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">⭐ ATS Score: ${ev.weighted_score}/5.0</span>
         </div>
+
+        ${job.status === 'applied' && job.applications && job.applications.length > 0 ? `
+        <div style="background:rgba(0, 210, 160, 0.05); border-left: 3px solid #00d2a0; padding: 10px 14px; border-radius: 4px; margin-bottom: 16px;">
+          <div style="font-size: 12px; color: #00d2a0; font-weight: 600; margin-bottom: 4px;">📄 Resume Tailoring Applied</div>
+          <div style="font-size: 13px; color: var(--text-secondary);">${esc(job.applications[job.applications.length - 1].method && job.applications[job.applications.length - 1].method.includes('|') ? job.applications[job.applications.length - 1].method.split('|')[1].trim() : 'Base Resume (No modifications)')}</div>
+        </div>
+        ` : ''}
 
         <div class="modal-section">
           <div class="modal-section-title">📊 Dimension Scores</div>
