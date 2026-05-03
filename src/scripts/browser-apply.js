@@ -315,11 +315,17 @@ async function main() {
         const btn = await page.$(sel);
         if (btn && await btn.isVisible()) submitButtonStillThere = true;
       }
+      
+      const needsEmailVerification = pageText.toLowerCase().includes('check your email') || 
+                                     pageText.toLowerCase().includes('verify your email') || 
+                                     pageText.toLowerCase().includes('confirm your email') ||
+                                     url.includes('join.com');
 
       // It is successful IF there are no visible errors AND (we hit a success URL OR we see a success message OR the submit button disappeared)
       if (!hasErrors && (isSuccessUrl || isSuccessText || !submitButtonStillThere)) {
         console.log('  ✅ Application verified successful!');
         results.applied++;
+        job.needsEmailVerification = needsEmailVerification;
         appliedJobs.push(job);
         
         // 5. Insert Application and Take Screenshot Proof
@@ -364,19 +370,17 @@ async function main() {
 
   await browser.close();
 
-  console.log(`\\n📊 Results: ${results.applied} applied, ${results.failed} failed/reverted\\n`);
+  console.log(`\n📊 Results: ${results.applied} applied, ${results.failed} failed/reverted\n`);
 
-  for (const j of appliedJobs) {
-    const resumeName = basename(RESUME_PATH);
-    const proofUrl = j.app_id ? `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${j.app_id}.jpeg` : null;
-    
+  for (const aj of appliedJobs) {
+    const proofUrl = aj.app_id ? `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${aj.app_id}.jpeg` : undefined;
     await sendDiscordEmbed({
-      title: `✅ Applied: ${j.title}`,
-      description: `Successfully auto-applied to **${j.company}**!\\n[View Job](${j.apply_link})`,
+      title: `✅ Auto-Applied: ${aj.title}`,
+      description: `Successfully applied to **${aj.company}**!${aj.needsEmailVerification ? '\n\n⚠️ **ATTENTION:** This platform requires email verification. Please check your inbox and click the confirmation link to finalize your application!' : ''}`,
       color: 0x00d2a0,
       fields: [
-        { name: '⭐ ATS Score', value: `${j.score ? j.score.toFixed(1) : '?'} / 5.0`, inline: true },
-        { name: '📄 Resume Used', value: resumeName, inline: true }
+        { name: '⭐ ATS Score', value: `${aj.score ? aj.score.toFixed(1) : '?'} / 5.0`, inline: true },
+        { name: '📄 Resume Used', value: basename(RESUME_PATH), inline: true }
       ],
       image: proofUrl ? { url: proofUrl } : undefined,
       timestamp: new Date().toISOString()
