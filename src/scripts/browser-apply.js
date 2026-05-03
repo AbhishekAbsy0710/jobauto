@@ -149,7 +149,7 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
 - For 'select', 'radio', or 'checkbox', your 'value' MUST exactly match the 'value' field of the option you choose (NOT the label). Do not make up values.
 - Visa/Sponsorship: Always answer strictly "No" or "I do not require sponsorship" (unless applying inside Germany where you might not need it).
 - Notice Period: Always answer "1 month" or "4 weeks" or "Immediate" depending on the options.
-- Salary Expectations: Put "85000" (or 85,000 depending on the form).
+- Salary Expectations: Put "55000" (or 55,000 depending on the form).
 - Disability/Veteran: Always answer "Decline to answer", "Prefer not to say", or "No".
 - If the question asks for a link (LinkedIn/GitHub/Portfolio), you MUST use exactly the URL provided above. ALWAYS include https:// otherwise the form will fail validation.`;
 
@@ -306,7 +306,7 @@ async function main() {
       const url = page.url().toLowerCase();
       const pageText = await page.textContent('body').catch(() => '');
       
-      if (pageText.toLowerCase().includes('captcha') || pageText.toLowerCase().includes('verify you are human') || pageText.toLowerCase().includes('checking if the site connection is secure') || pageText.toLowerCase().includes('hcaptcha')) {
+      if (pageText.toLowerCase().includes('please solve this captcha') || pageText.toLowerCase().includes('verify you are human') || pageText.toLowerCase().includes('checking if the site connection is secure')) {
          job.hasCaptcha = true;
          throw new Error('Captcha Blocked Submission');
       }
