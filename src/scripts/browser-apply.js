@@ -96,11 +96,20 @@ async function fillDynamicFields(page) {
 
       let options = [];
       if (el.tagName === 'SELECT') {
-        options = Array.from(el.querySelectorAll('option')).map(o => o.value || o.innerText.trim()).filter(Boolean);
+        options = Array.from(el.querySelectorAll('option'))
+                       .filter(o => o.innerText.trim() && o.innerText.trim() !== 'Select...')
+                       .map(o => ({ value: o.value || o.innerText.trim(), label: o.innerText.trim() }));
       } else if (el.type === 'radio' || el.type === 'checkbox') {
-        options = [el.value];
+        let text = el.value;
         const next = el.nextElementSibling;
-        if (next && next.tagName === 'LABEL') labelText += ' - ' + next.innerText;
+        if (next && next.tagName === 'LABEL') text = next.innerText.trim();
+        else if (el.parentElement && el.parentElement.tagName === 'LABEL') {
+           const clone = el.parentElement.cloneNode(true);
+           const inputs = clone.querySelectorAll('input');
+           inputs.forEach(i => i.remove());
+           text = clone.innerText.trim() || el.value;
+        }
+        options = [{ value: el.value, label: text }];
       }
 
       return {
@@ -108,7 +117,7 @@ async function fillDynamicFields(page) {
         name: el.name || '',
         type: el.type || el.tagName.toLowerCase(),
         label: labelText.substring(0, 150).replace(/\s+/g, ' ').trim(),
-        options: options.slice(0, 10)
+        options: options.slice(0, 20)
       };
     }).filter(f => f && f.label && f.name); // must have name to target
   });
@@ -136,13 +145,12 @@ Return JSON strictly in this format:
 
 CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
 - NEVER leave a required field blank if it is in the list.
-- For 'select', 'radio', or 'checkbox', your 'value' MUST be an EXACT string match to one of the provided 'options'. Do not make up values.
-- Visa/Sponsorship: Always answer strictly "No" or "I do not require sponsorship" (unless applying inside Germany where you might not need it, but generally "No" is safest).
+- For 'select', 'radio', or 'checkbox', your 'value' MUST exactly match the 'value' field of the option you choose (NOT the label). Do not make up values.
+- Visa/Sponsorship: Always answer strictly "No" or "I do not require sponsorship" (unless applying inside Germany where you might not need it).
 - Notice Period: Always answer "1 month" or "4 weeks" or "Immediate" depending on the options.
 - Salary Expectations: Put "85000" (or 85,000 depending on the form).
 - Disability/Veteran: Always answer "Decline to answer", "Prefer not to say", or "No".
-- If the question asks for a link (LinkedIn/GitHub), provide the exact URL.
-- Make absolutely sure that radio/checkbox answers match the text of the option perfectly.`;
+- If the question asks for a link (LinkedIn/GitHub), provide the exact URL.`;
 
   const userPrompt = `Form Fields:\\n` + JSON.stringify(questions, null, 2);
 
