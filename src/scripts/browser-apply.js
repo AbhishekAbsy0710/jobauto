@@ -7,7 +7,7 @@ process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
 import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,12 +38,12 @@ const PROFILE = {
 
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || '';
 
-async function sendDiscord(title, description, color = 0x00d2a0) {
+async function sendDiscordEmbed(embed) {
   if (!DISCORD_WEBHOOK) return;
   try {
     await fetch(DISCORD_WEBHOOK, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'JobAuto', embeds: [{ title, description, color, timestamp: new Date().toISOString() }] })
+      body: JSON.stringify({ username: 'JobAuto', embeds: [embed] })
     });
   } catch {}
 }
@@ -299,9 +299,19 @@ async function main() {
         results.applied++;
         appliedJobs.push(job);
         
-        await supabase.from('applications').insert({
+        // 5. Insert Application and Take Screenshot Proof
+        const { data: appData } = await supabase.from('applications').insert({
           evaluation_id: job.eval_id, method: 'auto', status: 'submitted', pdf_path: RESUME_PATH, applied_at: new Date().toISOString()
-        });
+        }).select('id').single();
+
+        if (appData) {
+          job.app_id = appData.id;
+          const screenshotPath = join(ROOT, `proof_${job.eval_id}.jpeg`);
+          await page.screenshot({ path: screenshotPath, fullPage: true, quality: 40, type: 'jpeg' });
+          const screenshotBuffer = readFileSync(screenshotPath);
+          await supabase.storage.from('screenshots').upload(`${appData.id}.jpeg`, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
+        }
+        appliedJobs.push(job);
         await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id);
       } else {
         throw new Error('Validation error or missing success confirmation');
@@ -320,15 +330,35 @@ async function main() {
 
   await browser.close();
 
-  console.log(`\\\n📊 Results: ${results.applied} applied, ${results.failed} failed/reverted\\\n`);
+  console.log(`\\n📊 Results: ${results.applied} applied, ${results.failed} failed/reverted\\n`);
 
-  if (appliedJobs.length > 0) {
-    const list = appliedJobs.map(j => `**${j.title}** at ${j.company}`).join('\\\n');
-    await sendDiscord(`✅ Auto-Applied to ${appliedJobs.length} Jobs`, list, 0x00d2a0);
+  for (const j of appliedJobs) {
+    const resumeName = basename(RESUME_PATH);
+    const proofUrl = j.app_id ? `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${j.app_id}.jpeg` : null;
+    
+    await sendDiscordEmbed({
+      title: `✅ Applied: ${j.title}`,
+      description: `Successfully auto-applied to **${j.company}**!\\n[View Job](${j.apply_link})`,
+      color: 0x00d2a0,
+      fields: [
+        { name: '⭐ ATS Score', value: `${j.score ? j.score.toFixed(1) : '?'} / 5.0`, inline: true },
+        { name: '📄 Resume Used', value: resumeName, inline: true }
+      ],
+      image: proofUrl ? { url: proofUrl } : undefined,
+      timestamp: new Date().toISOString()
+    });
+    // Tiny delay to avoid Discord rate limit
+    await new Promise(r => setTimeout(r, 500));
   }
+
   if (failedJobs.length > 0) {
-    const list = failedJobs.map(j => `**${j.title}** at ${j.company}`).join('\\\n');
-    await sendDiscord(`⚠️ ${failedJobs.length} Jobs Failed Auto-Apply`, `These encountered form validation errors and have been moved back to the **Manual Queue**.\\\n\\\n${list}`, 0xff4500);
+    const list = failedJobs.map(j => `**${j.title}** at ${j.company}`).join('\\n');
+    await sendDiscordEmbed({
+      title: `⚠️ ${failedJobs.length} Jobs Failed Auto-Apply`,
+      description: `These encountered form validation errors and have been moved back to the **Manual Queue**.\\n\\n${list}`,
+      color: 0xff4500,
+      timestamp: new Date().toISOString()
+    });
   }
 }
 
