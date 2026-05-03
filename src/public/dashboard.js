@@ -25,17 +25,14 @@ async function checkHealth() {
     const dot = document.querySelector('.health-dot');
     const text = document.getElementById('health-text');
 
-    if (data.ollama?.healthy && data.ollama?.hasModel) {
+    if (data.llm === 'groq') {
       dot.classList.add('online');
       dot.classList.remove('offline');
-      text.textContent = 'Ollama Online';
-    } else if (data.ollama?.healthy) {
-      dot.classList.remove('online', 'offline');
-      text.textContent = 'Model Missing';
+      text.textContent = 'Groq API Active';
     } else {
       dot.classList.add('offline');
       dot.classList.remove('online');
-      text.textContent = 'Ollama Offline';
+      text.textContent = 'Groq API Missing';
     }
   } catch {
     const dot = document.querySelector('.health-dot');
