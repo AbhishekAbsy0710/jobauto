@@ -249,6 +249,9 @@ async function main() {
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 900 },
   });
+  
+  // Set a strict global timeout so the bot fails fast instead of hanging for 30s per bad field
+  context.setDefaultTimeout(3000);
 
   const results = { applied: 0, failed: 0 };
   const appliedJobs = [];
