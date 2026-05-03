@@ -284,17 +284,26 @@ async function main() {
       if (!submitted) throw new Error('No submit button found');
 
       // 4. Strict Verification
-      await page.waitForTimeout(4000);
+      await page.waitForTimeout(5000);
+      const url = page.url().toLowerCase();
       const pageText = await page.textContent('body').catch(() => '');
-      const isSuccess = pageText.toLowerCase().includes('thank') ||
-                        pageText.toLowerCase().includes('submitted') ||
-                        pageText.toLowerCase().includes('received') ||
-                        pageText.toLowerCase().includes('applied') ||
-                        pageText.toLowerCase().includes('success');
       
-      const hasErrors = await page.$('.error, .error-message, [aria-invalid="true"], .invalid, .parsley-error').catch(() => null);
+      const isSuccessUrl = url.includes('thank') || url.includes('confirm') || url.includes('success');
+      const isSuccessText = pageText.toLowerCase().includes('thank you for applying') ||
+                            pageText.toLowerCase().includes('application received') ||
+                            pageText.toLowerCase().includes('application has been received') ||
+                            pageText.toLowerCase().includes('successfully submitted');
 
-      if (isSuccess && !hasErrors) {
+      const hasErrors = await page.$('.error, .error-message, [aria-invalid="true"], .invalid, .parsley-error, .text-danger, .application-error').catch(() => null);
+
+      let submitButtonStillThere = false;
+      for (const sel of submitSelectors) {
+        const btn = await page.$(sel);
+        if (btn && await btn.isVisible()) submitButtonStillThere = true;
+      }
+
+      // It is successful IF there are no visible errors AND (we hit a success URL OR we see a success message OR the submit button disappeared)
+      if (!hasErrors && (isSuccessUrl || isSuccessText || !submitButtonStillThere)) {
         console.log('  ✅ Application verified successful!');
         results.applied++;
         appliedJobs.push(job);
