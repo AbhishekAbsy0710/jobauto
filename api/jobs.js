@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     if (error || !job) return res.status(404).json({ error: 'Not found' });
 
     const { data: ev } = await sb.from('evaluations')
-      .select('*')
+      .select('*, applications(*)')
       .eq('job_id', jobId)
       .order('evaluated_at', { ascending: false })
       .limit(1)
@@ -37,7 +37,8 @@ export default async function handler(req, res) {
       letter_grade, weighted_score, match_percentage,
       archetype, action, priority, risk_level, reason,
       matching_skills, missing_skills, resume_improvements,
-      dimension_scores, star_stories, evaluated_at
+      dimension_scores, star_stories, evaluated_at,
+      applications (*)
     )
   `).limit(parseInt(limit));
 
@@ -79,6 +80,7 @@ export default async function handler(req, res) {
         dimension_scores: ev.dimension_scores || {},
         star_stories: ev.star_stories || [],
         evaluated_at: ev.evaluated_at,
+        applications: ev.applications || []
       });
     }
     return result;

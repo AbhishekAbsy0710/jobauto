@@ -230,6 +230,18 @@ async function openJobModal(id) {
     const statusMap = { applied: '✅ Applied', auto_queue: '🚀 In Queue', manual_queue: '👋 Review', archived: '🗄️ Archived', new: '🆕 New', evaluated: '📋 Evaluated' };
     const statusLabel = statusMap[job.status] || job.status;
 
+    // Check for failed applications
+    const failedApps = (job.applications || []).filter(a => a.status === 'failed');
+    const latestFail = failedApps.length > 0 ? failedApps.sort((a,b) => new Date(b.applied_at) - new Date(a.applied_at))[0] : null;
+
+    const failedWarningHtml = latestFail ? `
+      <div style="background:rgba(255, 69, 0, 0.1); border-left: 4px solid #ff4500; padding: 12px; border-radius: 4px; margin-bottom: 16px;">
+        <div style="color: #ff4500; font-weight: bold; margin-bottom: 4px;">⚠️ Auto-Apply Failed</div>
+        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"><strong>Reason:</strong> ${esc(latestFail.method || 'Unknown Validation Error')}</div>
+        ${latestFail.pdf_path ? `<a href="${latestFail.pdf_path}" target="_blank" style="color: #ff4500; text-decoration: underline; font-size: 12px;">📸 View Screenshot of Failure</a>` : ''}
+      </div>
+    ` : '';
+
     document.getElementById('modal-content').innerHTML = `
       <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:16px">
         <div class="grade-badge grade-${ev?.letter_grade || '—'}" style="font-size:24px;width:52px;height:52px">
@@ -241,6 +253,8 @@ async function openJobModal(id) {
           <div style="margin-top:4px"><span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">${statusLabel}</span></div>
         </div>
       </div>
+
+      ${failedWarningHtml}
 
       ${ev ? `
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">

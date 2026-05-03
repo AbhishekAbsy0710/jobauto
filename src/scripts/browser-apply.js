@@ -4,7 +4,9 @@
  * Dynamically fills out forms using Groq API
  */
 process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
-import { chromium } from 'playwright';
+import { chromium } from 'playwright-extra';
+import stealth from 'puppeteer-extra-plugin-stealth';
+chromium.use(stealth());
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, basename } from 'path';
@@ -125,18 +127,22 @@ async function fillDynamicFields(page) {
 
   console.log(`  🤖 AI reading ${questions.length} custom fields...`);
 
-  const sysPrompt = `You are an AI filling out a job application. Use the candidate's profile to answer the custom questions.
+const sysPrompt = `You are an AI filling out a job application. Use the candidate's profile to answer the custom questions.
 PROFILE CONTEXT:
 ${PROFILE_YAML}
 
 Return JSON strictly in this format:
 {"answers": [{"name": "input_name_attribute", "value": "your_answer", "type": "text|select|radio|checkbox"}]}
 
-Rules:
-- For 'select' or 'radio', the 'value' MUST exactly match one of the provided options.
-- If asking about Visa/Sponsorship, answer "No" (does not require sponsorship) if EU/German context, otherwise "Yes" if outside.
-- If asking about Disability/Veteran, answer "Decline to answer" or "No".
-- If asking about salary, put "85000" or similar based on profile.`;
+CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
+- NEVER leave a required field blank if it is in the list.
+- For 'select', 'radio', or 'checkbox', your 'value' MUST be an EXACT string match to one of the provided 'options'. Do not make up values.
+- Visa/Sponsorship: Always answer strictly "No" or "I do not require sponsorship" (unless applying inside Germany where you might not need it, but generally "No" is safest).
+- Notice Period: Always answer "1 month" or "4 weeks" or "Immediate" depending on the options.
+- Salary Expectations: Put "85000" (or 85,000 depending on the form).
+- Disability/Veteran: Always answer "Decline to answer", "Prefer not to say", or "No".
+- If the question asks for a link (LinkedIn/GitHub), provide the exact URL.
+- Make absolutely sure that radio/checkbox answers match the text of the option perfectly.`;
 
   const userPrompt = `Form Fields:\\n` + JSON.stringify(questions, null, 2);
 
@@ -291,6 +297,11 @@ async function main() {
       const url = page.url().toLowerCase();
       const pageText = await page.textContent('body').catch(() => '');
       
+      if (pageText.toLowerCase().includes('captcha') || pageText.toLowerCase().includes('verify you are human') || pageText.toLowerCase().includes('checking if the site connection is secure') || pageText.toLowerCase().includes('hcaptcha')) {
+         job.hasCaptcha = true;
+         throw new Error('Captcha Blocked Submission');
+      }
+      
       const isSuccessUrl = url.includes('thank') || url.includes('confirm') || url.includes('success');
       const isSuccessText = pageText.toLowerCase().includes('thank you for applying') ||
                             pageText.toLowerCase().includes('application received') ||
@@ -332,6 +343,7 @@ async function main() {
     } catch (e) {
       console.log(`  ❌ Failed: ${e.message}`);
       results.failed++;
+      job.errorMessage = e.message;
       
       // Take a debug screenshot of the failure
       if (!job.errorScreenshotPath) {
@@ -385,9 +397,19 @@ async function main() {
         } catch (err) {}
       }
 
+      let failureReason = fj.hasCaptcha ? 'Captcha Blocked' : (fj.errorMessage || 'Validation Error');
+
+      await supabase.from('applications').insert({
+        evaluation_id: fj.eval_id,
+        method: failureReason.substring(0, 100), // Store reason in method
+        status: 'failed',
+        pdf_path: errorProofUrl || null, // Store screenshot URL in pdf_path
+        applied_at: new Date().toISOString()
+      });
+
       await sendDiscordEmbed({
         title: `⚠️ Auto-Apply Failed: ${fj.title}`,
-        description: `Failed to auto-apply to **${fj.company}**. It has been safely returned to your **Manual Queue**.\\n\\n**Why?** The bot likely hit a Captcha, or missed a mandatory custom checkbox. Check the screenshot below!\\n\\n[👉 Click Here to Apply Manually](${fj.apply_link})`,
+        description: `Failed to auto-apply to **${fj.company}**. It has been safely returned to your **Manual Queue**.\\n\\n**Reason:** ${failureReason}\\nCheck the screenshot below to see exactly what the bot saw!\\n\\n[👉 Click Here to Apply Manually](${fj.apply_link})`,
         color: 0xff4500,
         image: errorProofUrl ? { url: errorProofUrl } : undefined,
         timestamp: new Date().toISOString()
