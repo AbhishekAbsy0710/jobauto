@@ -139,6 +139,7 @@ async function fillDynamicFields(page) {
 const sysPrompt = `You are an AI filling out a job application. Use the candidate's profile to answer the custom questions.
 PROFILE CONTEXT:
 ${PROFILE_YAML}
+Candidate LinkedIn: ${PROFILE.linkedin}
 
 Return JSON strictly in this format:
 {"answers": [{"name": "input_name_attribute", "value": "your_answer", "type": "text|select|radio|checkbox"}]}
@@ -150,9 +151,9 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
 - Notice Period: Always answer "1 month" or "4 weeks" or "Immediate" depending on the options.
 - Salary Expectations: Put "85000" (or 85,000 depending on the form).
 - Disability/Veteran: Always answer "Decline to answer", "Prefer not to say", or "No".
-- If the question asks for a link (LinkedIn/GitHub), provide the exact URL.`;
+- If the question asks for a link (LinkedIn/GitHub/Portfolio), you MUST use exactly the URL provided above. ALWAYS include https:// otherwise the form will fail validation.`;
 
-  const userPrompt = `Form Fields:\\n` + JSON.stringify(questions, null, 2);
+  const userPrompt = `Form Fields:\n` + JSON.stringify(questions, null, 2);
 
   try {
     const res = await callGroq(sysPrompt, userPrompt);
