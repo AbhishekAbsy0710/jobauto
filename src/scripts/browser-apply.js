@@ -157,7 +157,9 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
 
   try {
     const res = await callGroq(sysPrompt, userPrompt);
-    const data = JSON.parse(res);
+    const match = res.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("No JSON found");
+    const data = JSON.parse(match[0]);
     if (!data.answers) return;
 
     for (const ans of data.answers) {
