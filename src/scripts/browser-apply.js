@@ -287,7 +287,7 @@ async function main() {
       if (!submitted) throw new Error('No submit button found');
 
       // 4. Strict Verification
-      await page.waitForTimeout(5000);
+      await page.waitForTimeout(10000);
       const url = page.url().toLowerCase();
       const pageText = await page.textContent('body').catch(() => '');
       
@@ -332,6 +332,16 @@ async function main() {
     } catch (e) {
       console.log(`  ❌ Failed: ${e.message}`);
       results.failed++;
+      
+      // Take a debug screenshot of the failure
+      if (!job.errorScreenshotPath) {
+         try {
+           const errorScreenshotPath = join(ROOT, `error_${job.eval_id}.jpeg`);
+           await page.screenshot({ path: errorScreenshotPath, fullPage: true, quality: 40, type: 'jpeg' });
+           job.errorScreenshotPath = errorScreenshotPath;
+         } catch (err) {}
+      }
+      
       failedJobs.push(job);
       // Revert to manual_queue
       await supabase.from('jobs').update({ status: 'manual_queue' }).eq('id', job.id);
@@ -364,13 +374,26 @@ async function main() {
   }
 
   if (failedJobs.length > 0) {
-    const list = failedJobs.map(j => `**${j.title}** at ${j.company}`).join('\\n');
-    await sendDiscordEmbed({
-      title: `⚠️ ${failedJobs.length} Jobs Failed Auto-Apply`,
-      description: `These encountered form validation errors and have been moved back to the **Manual Queue**.\\n\\n${list}`,
-      color: 0xff4500,
-      timestamp: new Date().toISOString()
-    });
+    for (const fj of failedJobs) {
+      let errorProofUrl = null;
+      if (fj.errorScreenshotPath && existsSync(fj.errorScreenshotPath)) {
+        try {
+          const screenshotBuffer = readFileSync(fj.errorScreenshotPath);
+          const fileName = `error_${fj.eval_id}.jpeg`;
+          await supabase.storage.from('screenshots').upload(fileName, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
+          errorProofUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${fileName}`;
+        } catch (err) {}
+      }
+
+      await sendDiscordEmbed({
+        title: `⚠️ Auto-Apply Failed: ${fj.title}`,
+        description: `Failed to auto-apply to **${fj.company}**. It has been safely returned to your **Manual Queue**.\\n\\n**Why?** The bot likely hit a Captcha, or missed a mandatory custom checkbox. Check the screenshot below!\\n\\n[👉 Click Here to Apply Manually](${fj.apply_link})`,
+        color: 0xff4500,
+        image: errorProofUrl ? { url: errorProofUrl } : undefined,
+        timestamp: new Date().toISOString()
+      });
+      await new Promise(r => setTimeout(r, 500));
+    }
   }
 }
 
