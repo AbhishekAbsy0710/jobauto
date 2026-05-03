@@ -565,15 +565,15 @@ async function loadApplied() {
           <td>${esc(a.title || 'N/A')}</td>
           <td>📍 ${esc(a.location || 'N/A')}</td>
           <td>${platformIcon(a.platform)} ${esc(a.platform || 'N/A')}</td>
-          <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${(a.method || 'manual').toUpperCase()}</span></td>
+          <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${(a.method ? a.method.split('|')[0].trim() : 'manual').toUpperCase()}</span></td>
           <td><span class="grade-badge grade-${a.letter_grade}" style="font-size:12px;width:28px;height:28px;">${a.letter_grade || '?'}</span></td>
           <td style="font-weight:600;">${a.weighted_score ? a.weighted_score.toFixed(1) : '?'}/5</td>
           <td>
-            <a href="/api/resume" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;" title="View resume used">📄 ${a.pdf_path && !a.pdf_path.startsWith('http') ? a.pdf_path.split('/').pop() : 'resume.pdf'}</a>
+            <a href="${a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : '/api/resume'}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;" title="View resume used">📄 ${a.pdf_path && !a.pdf_path.startsWith('http') ? a.pdf_path.split('/').pop() : (a.pdf_path && a.pdf_path.startsWith('http') && a.status !== 'failed' ? 'Tailored Resume' : 'resume.pdf')}</a>
             <br>
             <a href="${a.status === 'failed' && a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${a.app_id}.jpeg`}" target="_blank" style="color:#ffd93d;text-decoration:none;font-size:11px;font-weight:500;" title="View Submission Proof">📸 View Proof</a>
           </td>
-          <td style="font-size:11px;color:var(--text-muted);">Base Resume (No modifications)</td>
+          <td style="font-size:11px;color:var(--text-muted);">${a.method && a.method.includes('|') ? esc(a.method.split('|')[1].trim()) : 'Base Resume (No modifications)'}</td>
           <td>${a.apply_link ? '<a href="' + a.apply_link + '" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View Job</a>' : '—'}</td>
         </tr>
       `;

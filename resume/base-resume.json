@@ -1,0 +1,90 @@
+{
+  "personal": {
+    "name": "Abhishek Raj Pagadala",
+    "title": "AI-Augmented Full-Stack DevOps Engineer",
+    "location": "Berlin, Germany",
+    "linkedin": "https://linkedin.com/in/abhishek-raj-pagadala",
+    "github": "https://github.com/AbhishekAbsy0710",
+    "email": "pagadalaabhishek60@gmail.com",
+    "phone": "+49 176 6723 9250"
+  },
+  "summary": "AI-Augmented Full-Stack DevOps Engineer with 4+ years of experience spanning Azure cloud infrastructure, CI/CD automation, full-stack development, and AI-powered workflows. Currently leading end-to-end product development at Ayonic (Berlin) — building CI/CD pipelines with GitHub Actions, deploying Flutter mobile apps to iOS/Android, managing cloud servers, and integrating Stripe/PayPal payments.",
+  "skills": {
+    "Cloud & Infrastructure": "Azure (VMs, AKS, App Services, Functions), Terraform, Docker, Kubernetes, Cloudflare, Nginx, Linux",
+    "CI/CD & DevOps": "GitHub Actions, Azure DevOps, Git, Automated Deployments, ArgoCD, Jenkins",
+    "Backend": "PHP/Laravel, Python, Django, Node.js, REST APIs",
+    "Frontend & Mobile": "Flutter/Dart, HTML, CSS, JavaScript, Bootstrap, React",
+    "Databases": "PostgreSQL, MySQL, MongoDB, CosmosDB, Neo4j, SQLite",
+    "Payments & APIs": "Stripe, PayPal, Webhook Integration",
+    "Data & AI": "Python, R, PowerBI, RAG Pipelines, LLMs, MCP, Hugging Face, Transformers, Prompt Engineering"
+  },
+  "experience": [
+    {
+      "company": "Ayonic",
+      "location": "Berlin, Germany",
+      "role": "Full-Stack DevOps Engineer",
+      "date": "Jan 2026 – Present",
+      "bullets": [
+        "Architected and maintained GitHub Actions CI/CD pipelines for Flutter iOS/Android builds, automating the full delivery cycle from code push to TestFlight and Play Store deployment.",
+        "Managed production and staging server infrastructure including disk optimization, database operations, and automated backup systems.",
+        "Implemented Cloudflare CDN and DDoS protection, handling DNS migration, SSL certificates, firewall configuration, and real visitor IP logging.",
+        "Integrated and maintained Stripe and PayPal payment systems, fixing critical issues including refund calculation errors and webhook verification flows."
+      ]
+    },
+    {
+      "company": "Enstoa",
+      "location": "Hyderabad, India",
+      "role": "Cloud Operations Engineer",
+      "date": "Oct 2024 – Feb 2025",
+      "bullets": [
+        "Automated provisioning of 50+ Azure VMs and services using Terraform, reducing deployment time from 4 hours to 15 minutes.",
+        "Administered databases (PostgreSQL, CosmosDB) and implemented monitoring dashboards using Azure Monitor.",
+        "Reduced Azure cloud costs by 30% through resource optimization, right-sizing, and auto-scaling policies.",
+        "Implemented RBAC and security policies across Azure AD, ensuring compliance with enterprise security standards."
+      ]
+    },
+    {
+      "company": "Stellantis (via Capgemini)",
+      "location": "Hyderabad, India",
+      "role": "Azure DevOps Engineer",
+      "date": "Jun 2023 – Sep 2024",
+      "bullets": [
+        "Built and maintained Azure DevOps CI/CD pipelines for .NET and Java applications across 8 teams.",
+        "Managed AKS (Azure Kubernetes Service) clusters with Helm charts and implemented GitOps workflows.",
+        "Automated infrastructure provisioning using Terraform modules, reducing infrastructure setup time by 40%.",
+        "Configured Azure Monitor, Log Analytics, and alert rules for proactive incident detection."
+      ]
+    },
+    {
+      "company": "Novartis (via Capgemini)",
+      "location": "Hyderabad, India",
+      "role": "Cloud Support Engineer",
+      "date": "Dec 2022 – May 2023",
+      "bullets": [
+        "Provided L2/L3 cloud support for Azure infrastructure serving pharmaceutical research workloads.",
+        "Developed Power Apps and Power Automate solutions for internal workflow automation, reducing manual effort by 25%.",
+        "Managed Azure AD, VPN configurations, and network security groups for hybrid cloud environments."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "MSc Data Analytics",
+      "school": "Berlin School of Business and Innovation (BSBI)",
+      "location": "Berlin, Germany",
+      "date": "Oct 2024 – Expected 2026"
+    },
+    {
+      "degree": "BTech Computer Science",
+      "school": "Lovely Professional University",
+      "location": "Punjab, India",
+      "date": "Aug 2017 – May 2021"
+    }
+  ],
+  "certifications": [
+    "Microsoft Certified: Azure Administrator Associate (AZ-104)",
+    "Terraform Associate — Infrastructure as Code",
+    "DevOps Engineering — CI/CD & Automation",
+    "Hugging Face AI Agents"
+  ]
+}

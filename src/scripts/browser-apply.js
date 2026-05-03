@@ -187,7 +187,7 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
 // ============================================
 // BASE FORM FILLER
 // ============================================
-async function fillBaseFields(page) {
+async function fillBaseFields(page, resumePath) {
   // Try to click any initial "Apply" buttons if it's Lever/Generic
   const applyBtns = await page.$$('a:has-text("Apply for this job"), button:has-text("Apply"), a.apply-button, .apply-btn');
   for (const btn of applyBtns) {
@@ -208,14 +208,14 @@ async function fillBaseFields(page) {
   await fillField(page, 'input[name*="location"], input[id*="location"], input[placeholder*="City"]', PROFILE.city);
 
   // Resume
-  if (existsSync(RESUME_PATH)) {
+  if (existsSync(resumePath)) {
     try {
       const fileInputs = await page.$$('input[type="file"]');
       for (const input of fileInputs) {
         const accept = await input.getAttribute('accept') || '';
         const name = await input.getAttribute('name') || '';
         if (accept.includes('pdf') || name.includes('resume') || name.includes('cv') || fileInputs.length === 1) {
-          await input.setInputFiles(RESUME_PATH);
+          await input.setInputFiles(resumePath);
           console.log('  📎 Resume uploaded');
           break;
         }
@@ -234,6 +234,96 @@ async function fillField(page, selector, value) {
     }
   } catch {}
   return false;
+}
+
+// ============================================
+// DYNAMIC RESUME TAILORING
+// ============================================
+async function generateTailoredResume(job, context, supabase, fallbackPath) {
+  const baseJsonPath = join(ROOT, 'resume', 'base-resume.json');
+  if (!existsSync(baseJsonPath)) return { pdfPath: fallbackPath, publicUrl: null, changes: 'Base Resume (No modifications)' };
+
+  console.log(`  🤖 Tailoring resume for ${job.company} - ${job.title}...`);
+  const baseJsonStr = readFileSync(baseJsonPath, 'utf8');
+
+  const sysPrompt = `You are an expert technical recruiter and resume writer.
+Rewrite the candidate's base resume strictly in JSON format to align perfectly with the target Job Description.
+RULES:
+1. Do NOT hallucinate new experiences, companies, degrees, or tools the candidate has not used.
+2. Reword the 'summary' and the 'bullets' inside 'experience' to emphasize skills required by the job. Remove irrelevant bullets if necessary to keep it concise.
+3. Include a 'changes_made' string field summarizing the modifications in 1 sentence.
+Return ONLY valid JSON matching the structure of the provided base resume (adding 'changes_made').`;
+
+  const userPrompt = `Job Title: ${job.title}\nJob Company: ${job.company}\nJob Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nBase Resume JSON:\n${baseJsonStr}`;
+
+  let tailoredJson;
+  try {
+    const res = await callGroq(sysPrompt, userPrompt);
+    const match = res.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("No JSON found");
+    tailoredJson = JSON.parse(match[0]);
+  } catch(e) {
+    console.log('  ⚠️ Failed to generate tailored resume JSON, using base.');
+    return { pdfPath: fallbackPath, publicUrl: null, changes: 'Base Resume (No modifications)' };
+  }
+
+  const templateStr = readFileSync(join(ROOT, 'src', 'scripts', 'resume-template.html'), 'utf8');
+  
+  const skillsHtml = Object.entries(tailoredJson.skills || {}).map(([cat, sk]) => 
+     `<div class="skill-category">${cat}</div><div>${sk}</div>`
+  ).join('');
+
+  const expHtml = (tailoredJson.experience || []).map(exp => `
+    <div class="experience-item">
+      <div class="exp-header">
+        <div><span class="exp-title">${exp.role}</span> | <span class="exp-company">${exp.company}</span></div>
+        <div class="exp-date-loc">${exp.date} • ${exp.location || ''}</div>
+      </div>
+      <ul>${(exp.bullets || []).map(b => `<li>${b}</li>`).join('')}</ul>
+    </div>
+  `).join('');
+
+  const eduHtml = (tailoredJson.education || []).map(edu => `
+    <div class="edu-item">
+      <div><span class="edu-degree">${edu.degree}</span>, <span class="edu-school">${edu.school}</span></div>
+      <div class="exp-date-loc">${edu.date} • ${edu.location || ''}</div>
+    </div>
+  `).join('');
+
+  const certsHtml = (tailoredJson.certifications || []).map(c => `<div class="cert-item">${c}</div>`).join('');
+
+  const finalHtml = templateStr
+    .replace('{{name}}', tailoredJson.personal?.name || '')
+    .replace('{{title}}', tailoredJson.personal?.title || '')
+    .replace('{{location}}', tailoredJson.personal?.location || '')
+    .replace(/{{email}}/g, tailoredJson.personal?.email || '')
+    .replace('{{phone}}', tailoredJson.personal?.phone || '')
+    .replace('{{linkedin}}', tailoredJson.personal?.linkedin || '')
+    .replace('{{github}}', tailoredJson.personal?.github || '')
+    .replace('{{summary}}', tailoredJson.summary || '')
+    .replace('{{skills_html}}', skillsHtml)
+    .replace('{{experience_html}}', expHtml)
+    .replace('{{education_html}}', eduHtml)
+    .replace('{{certifications_html}}', certsHtml);
+
+  const outputPath = join(ROOT, 'resume', `tailored_${job.id}.pdf`);
+  const pdfPage = await context.newPage();
+  await pdfPage.setContent(finalHtml, { waitUntil: 'networkidle' });
+  await pdfPage.pdf({ path: outputPath, format: 'A4', margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' } });
+  await pdfPage.close();
+
+  let publicUrl = null;
+  try {
+     const pdfBuffer = readFileSync(outputPath);
+     const fileName = `resume_${job.id}_${Date.now()}.pdf`;
+     await supabase.storage.from('screenshots').upload(fileName, pdfBuffer, { upsert: true, contentType: 'application/pdf' });
+     publicUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${fileName}`;
+     console.log(`  📎 Tailored resume generated & uploaded`);
+  } catch(e) {
+     console.error('  ⚠️ Failed to upload tailored resume:', e.message);
+  }
+
+  return { pdfPath: outputPath, publicUrl, changes: tailoredJson.changes_made || 'Tailored resume to match job description' };
 }
 
 // ============================================
@@ -280,13 +370,18 @@ async function main() {
       await page.goto(job.apply_link, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(2000);
 
-      // 1. Fill base generic fields
-      await fillBaseFields(page);
+      // 1. Generate tailored resume (if possible)
+      const tailoredInfo = await generateTailoredResume(job, context, supabase, RESUME_PATH);
+      const activeResumePath = tailoredInfo.pdfPath;
+      const tailoredChanges = tailoredInfo.changes;
 
-      // 2. Fill custom dynamic fields via Groq AI
+      // 2. Fill base generic fields
+      await fillBaseFields(page, activeResumePath);
+
+      // 3. Fill custom dynamic fields via Groq AI
       await fillDynamicFields(page);
 
-      // 3. Submit
+      // 4. Submit
       let submitted = false;
       const submitSelectors = ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("Submit")', 'button:has-text("Apply")', 'button.submit-application', '#submit_app'];
       for (const sel of submitSelectors) {
@@ -338,8 +433,13 @@ async function main() {
         appliedJobs.push(job);
         
         // 5. Insert Application and Take Screenshot Proof
+        let methodCol = 'auto';
+        if (tailoredChanges !== 'Base Resume (No modifications)') {
+           methodCol = 'auto | ' + tailoredChanges.substring(0, 100);
+        }
+
         const { data: appData } = await supabase.from('applications').insert({
-          evaluation_id: job.eval_id, method: 'auto', status: 'submitted', pdf_path: RESUME_PATH, applied_at: new Date().toISOString()
+          evaluation_id: job.eval_id, method: methodCol, status: 'submitted', pdf_path: tailoredInfo.publicUrl || RESUME_PATH, applied_at: new Date().toISOString()
         }).select('id').single();
 
         if (appData) {
