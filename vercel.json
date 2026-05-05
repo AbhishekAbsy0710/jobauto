@@ -18,7 +18,7 @@
     }
   ],
   "crons": [
-    { "path": "/api/cron/scrape", "schedule": "0 0 * * *" },
-    { "path": "/api/cron/evaluate", "schedule": "0 1 * * *" }
+    { "path": "/api/cron/scrape", "schedule": "0 0,12 * * *" },
+    { "path": "/api/cron/evaluate", "schedule": "30 0,12 * * *" }
   ]
 }

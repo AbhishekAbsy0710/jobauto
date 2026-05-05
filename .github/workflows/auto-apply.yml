@@ -2,8 +2,8 @@ name: Browser Auto-Apply
 
 on:
   schedule:
-    # Run every 6 hours
-    - cron: '30 */6 * * *'
+    # Run twice a day (1:00 and 13:00 UTC)
+    - cron: '0 1,13 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:

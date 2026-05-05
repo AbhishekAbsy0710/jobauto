@@ -50,7 +50,7 @@ async function sendDiscordEmbed(embed) {
   } catch {}
 }
 
-async function callGroq(systemPrompt, userPrompt) {
+async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant') {
   if (!process.env.GROQ_API_KEY) return '{}';
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -59,7 +59,7 @@ async function callGroq(systemPrompt, userPrompt) {
       'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
+      model: model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -69,7 +69,43 @@ async function callGroq(systemPrompt, userPrompt) {
       response_format: { type: 'json_object' },
     }),
   });
-  if (!res.ok) return '{}';
+  if (!res.ok) {
+    const errText = await res.text();
+    console.log(`  ⚠️ Groq API Error (${model}): ${res.status} - ${errText}`);
+    
+    // 413 Request too large — try fallback model or return empty
+    if (res.status === 413) {
+      if (model === 'llama-3.1-8b-instant') {
+        console.log(`  🔄 Request too large for 8b, trying 70b...`);
+        return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+      }
+      console.log(`  ⚠️ Request too large even for 70b, skipping...`);
+      return '{}';
+    }
+    
+    // TPD limit reached for primary 8b, switch to 70b fallback
+    if (res.status === 429 && model === 'llama-3.1-8b-instant' && errText.includes('TPD')) {
+      console.log(`  🔄 Retrying with fallback model: llama-3.3-70b-versatile`);
+      return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+    }
+    
+    // TPD limit reached for fallback 70b too, switch back to 8b with wait
+    if (res.status === 429 && model === 'llama-3.3-70b-versatile' && errText.includes('TPD')) {
+      console.log(`  ⚠️ Both models hit TPD limit. Skipping...`);
+      return '{}';
+    }
+    
+    // TPM limit reached, wait and retry
+    if (res.status === 429 && errText.includes('TPM')) {
+      const waitMatch = errText.match(/try again in ([\d\.]+)s/);
+      const waitTime = waitMatch ? (parseFloat(waitMatch[1]) * 1000) + 1000 : 15000;
+      console.log(`  ⏳ TPM limit hit. Waiting ${Math.round(waitTime/1000)}s before retry...`);
+      await new Promise(r => setTimeout(r, waitTime));
+      return await callGroq(systemPrompt, userPrompt, model);
+    }
+    
+    return '{}';
+  }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || '{}';
 }
@@ -81,7 +117,7 @@ async function fillDynamicFields(page) {
   const fields = await page.evaluate(() => {
     const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), select, textarea'));
     return inputs.map(el => {
-      const name = (el.name || '').toLowerCase();
+      const name = (el.name || el.id || '').toLowerCase();
       // Skip fields we likely already hardcoded
       if (name.includes('name') || name.includes('email') || name.includes('phone') || el.type === 'file' || el.type === 'submit') return null;
       if (el.disabled) return null;
@@ -114,12 +150,12 @@ async function fillDynamicFields(page) {
 
       return {
         id: el.id || '',
-        name: el.name || '',
+        name: el.name || el.id || '',
         type: el.type || el.tagName.toLowerCase(),
         label: labelText.substring(0, 150).replace(/\s+/g, ' ').trim(),
         options: options.slice(0, 20)
       };
-    }).filter(f => f && f.label && f.name); // must have name to target
+    }).filter(f => f && f.label && f.name); // must have name or id to target
   });
 
   if (fields.length === 0) return;
@@ -151,6 +187,7 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
 - Notice Period: Always answer "1 month" or "4 weeks" or "Immediate" depending on the options.
 - Salary Expectations: Put "55000" (or 55,000 depending on the form).
 - Disability/Veteran: Always answer "Decline to answer", "Prefer not to say", or "No".
+- If a question appears to be a Yes/No question (e.g. "Are you open to...", "Do you have..."), STRICTLY answer exactly "Yes" or "No" unless you are 100% sure the dropdown options are different.
 - If the question asks for a link (LinkedIn/GitHub/Portfolio), you MUST use exactly the URL provided above. ALWAYS include https:// otherwise the form will fail validation.
 - DO NOT use actual newlines inside the JSON strings. Use literal "\\n" if you must break lines. Unescaped newlines will break the JSON parser.
 - Escape all double quotes inside your answers using \\"`;
@@ -168,11 +205,14 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
     jsonString = jsonString.replace(/(?<=:\s*")(.*?)(?="(?:\s*\}|\s*,))/gs, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, ''));
 
     const data = JSON.parse(jsonString);
-    if (!data.answers) return;
+    if (!data.answers) {
+      console.log(`  ⚠️ AI fill error: No 'answers' array in JSON. Raw data: ${JSON.stringify(data).substring(0, 200)}`);
+      return;
+    }
 
     for (const ans of data.answers) {
       try {
-        const selector = `[name="${ans.name}"]`;
+        const selector = ans.name.includes('question_') ? `[id="${ans.name}"], [name="${ans.name}"]` : `[name="${ans.name}"], [id="${ans.name}"]`;
         if (ans.type === 'radio' || ans.type === 'checkbox') {
           // Find the exact radio/checkbox by value
           const specificSelector = `${selector}[value="${ans.value}"]`;
@@ -189,10 +229,20 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
           if (isSelect) {
             await page.selectOption(selector, { value: ans.value }, { force: true }).catch(() => page.selectOption(selector, { label: ans.value }, { force: true }));
           } else {
-            await page.fill(selector, ans.value, { force: true });
+            const el = await page.$(selector);
+            if (el) {
+               // Check if it's a React Select combobox
+               const className = await el.getAttribute('class') || '';
+               const role = await el.getAttribute('role') || '';
+               if (className.includes('select__input') || className.includes('react-select') || role === 'combobox') {
+                  await fillReactSelect(page, el, ans.value);
+               } else {
+                  await el.fill(ans.value, { force: true });
+               }
+            }
           }
         }
-        console.log(`    ↳ Filled ${ans.name} -> ${ans.value}`);
+        console.log(`    ↳ Filled ${ans.name} -> ${ans.value.substring(0, 50)}${ans.value.length > 50 ? '...' : ''}`);
       } catch (e) {
         console.log(`    ↳ ⚠️ Failed to fill ${ans.name}: ${e.message}`);
       }
@@ -203,9 +253,150 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
 }
 
 // ============================================
+// COOKIE BANNER DISMISSAL
+// ============================================
+async function dismissCookieBanners(page) {
+  const cookieSelectors = [
+    'button:has-text("Accept")', 'button:has-text("Accept All")', 'button:has-text("Accept all")',
+    'button:has-text("Agree")', 'button:has-text("Got it")', 'button:has-text("OK")',
+    'button:has-text("I agree")', 'button:has-text("Allow all")',
+    'button[id*="cookie"] >> text=Accept', 'button[id*="consent"] >> text=Accept',
+    '#onetrust-accept-btn-handler', '.cookie-consent-accept', '#cookie-accept',
+    '[data-testid="cookie-accept"]', '.cc-accept', '.cc-btn.cc-allow',
+  ];
+  for (const sel of cookieSelectors) {
+    try {
+      const btn = await page.$(sel);
+      if (btn && await btn.isVisible()) {
+        await btn.click({ timeout: 2000 });
+        console.log('  🍪 Dismissed cookie banner');
+        await page.waitForTimeout(500);
+        break;
+      }
+    } catch {}
+  }
+}
+
+// ============================================
+// DEMOGRAPHIC SURVEY FIELDS (hard-coded to avoid AI hallucination)
+// ============================================
+async function fillDemographicFields(page) {
+  // Gender
+  const genderSelectors = [
+    'select[name*="gender"], select[id*="gender"]',
+    'select[name*="Gender"], select[id*="Gender"]',
+  ];
+  for (const sel of genderSelectors) {
+    try {
+      const el = await page.$(sel);
+      if (el && await el.isVisible()) {
+        await page.selectOption(sel, { label: 'Decline to self-identify' }).catch(() =>
+          page.selectOption(sel, { label: 'Prefer not to say' }).catch(() =>
+            page.selectOption(sel, { label: 'I do not wish to answer' }).catch(() => {})
+          )
+        );
+      }
+    } catch {}
+  }
+
+  // Veteran status
+  const vetSelectors = ['select[name*="veteran"], select[id*="veteran"]', 'select[name*="Veteran"], select[id*="Veteran"]'];
+  for (const sel of vetSelectors) {
+    try {
+      const el = await page.$(sel);
+      if (el && await el.isVisible()) {
+        await page.selectOption(sel, { label: 'I am not a protected veteran' }).catch(() =>
+          page.selectOption(sel, { label: 'I don\'t wish to answer' }).catch(() => {})
+        );
+      }
+    } catch {}
+  }
+
+  // Disability
+  const disSelectors = ['select[name*="disability"], select[id*="disability"]', 'select[name*="Disability"], select[id*="Disability"]'];
+  for (const sel of disSelectors) {
+    try {
+      const el = await page.$(sel);
+      if (el && await el.isVisible()) {
+        await page.selectOption(sel, { label: 'I don\'t wish to answer' }).catch(() =>
+          page.selectOption(sel, { label: 'Prefer not to say' }).catch(() => {})
+        );
+      }
+    } catch {}
+  }
+
+  // Race/ethnicity
+  const raceSelectors = ['select[name*="race"], select[id*="race"], select[name*="ethnicity"], select[id*="ethnicity"]'];
+  for (const sel of raceSelectors) {
+    try {
+      const el = await page.$(sel);
+      if (el && await el.isVisible()) {
+        await page.selectOption(sel, { label: 'Decline to self-identify' }).catch(() =>
+          page.selectOption(sel, { label: 'I don\'t wish to answer' }).catch(() => {})
+        );
+      }
+    } catch {}
+  }
+}
+
+// ============================================
+// REACT SELECT HELPER: Click to open, read options, click to select
+// ============================================
+async function fillReactSelect(page, inputElement, desiredValue) {
+  try {
+    // Click the dropdown control to open it
+    const control = await inputElement.evaluateHandle(el => el.closest('.select__control') || el.closest('[class*="-control"]') || el.parentElement?.parentElement);
+    await control.click();
+    await page.waitForTimeout(400);
+
+    // Read all available options
+    const options = await page.$$eval('[id*="-option-"]', els => els.map(el => ({
+      text: el.innerText.trim(),
+      id: el.id
+    })));
+
+    if (options.length === 0) {
+      // Fallback: type and press enter
+      await inputElement.type(desiredValue, { delay: 50 });
+      await page.waitForTimeout(300);
+      await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(100);
+      await page.keyboard.press('Enter');
+      return;
+    }
+
+    // Find best matching option (case-insensitive partial match)
+    const valueLower = desiredValue.toLowerCase();
+    let bestMatch = options.find(o => o.text.toLowerCase() === valueLower)
+      || options.find(o => o.text.toLowerCase().includes(valueLower))
+      || options.find(o => valueLower.includes(o.text.toLowerCase()))
+      || options[0]; // fallback to first option
+
+    // Click the matching option element
+    if (bestMatch) {
+      await page.click(`#${bestMatch.id}`);
+      await page.waitForTimeout(200);
+    }
+  } catch (e) {
+    // Ultimate fallback: type and press enter
+    try {
+      await inputElement.focus();
+      await inputElement.type(desiredValue, { delay: 50 });
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Enter');
+    } catch {}
+  }
+}
+
+// ============================================
 // BASE FORM FILLER
 // ============================================
 async function fillBaseFields(page, resumePath) {
+  // Prevent links from opening in a new tab so we stay on the same page
+  await page.evaluate(() => {
+    document.querySelectorAll('a').forEach(a => a.removeAttribute('target'));
+  }).catch(() => {});
+
   // Try to click any initial "Apply" buttons if it's Lever/Generic
   const applyBtns = await page.$$('a:has-text("Apply for this job"), button:has-text("Apply"), a.apply-button, .apply-btn');
   for (const btn of applyBtns) {
@@ -275,13 +466,60 @@ Return ONLY valid JSON matching the structure of the provided base resume (addin
   const userPrompt = `Job Title: ${job.title}\nJob Company: ${job.company}\nJob Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nBase Resume JSON:\n${baseJsonStr}`;
 
   let tailoredJson;
+  let iteration = 1;
+  const maxIterations = 2;
+  
   try {
-    const res = await callGroq(sysPrompt, userPrompt);
-    const match = res.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("No JSON found");
-    tailoredJson = JSON.parse(match[0]);
+    let currentResumeJsonStr = baseJsonStr;
+    let bestScore = 0;
+    
+    while (iteration <= maxIterations) {
+        console.log(`  🔄 Tailoring iteration ${iteration}/${maxIterations}...`);
+        const iterUserPrompt = `Job Title: ${job.title}\nJob Company: ${job.company}\nJob Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nCurrent Resume JSON:\n${currentResumeJsonStr}`;
+        
+        const res = await callGroq(sysPrompt, iterUserPrompt);
+        const match = res.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error("No JSON found");
+        
+        const candidateJson = JSON.parse(match[0]);
+        
+        if (iteration < maxIterations) {
+            console.log(`  📊 Evaluating tailored resume...`);
+            // We need to temporarily change response_format to text for the ATS score
+            const evalSysPrompt = `You are a strict ATS (Applicant Tracking System). Compare the Candidate's Resume JSON against the Job Description. Return ONLY a raw integer from 0 to 100 representing the match percentage. Do not include any other text or explanation. Output must be exactly a number like: 82`;
+            const evalUserPrompt = `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume JSON:\n${JSON.stringify(candidateJson)}`;
+            
+            // For scoring we don't strictly need JSON format, but callGroq is hardcoded to json_object. 
+            // So we can wrap the instruction to return a JSON with a single "score" field.
+            const evalSysPromptJson = `You are a strict ATS (Applicant Tracking System). Compare the Candidate's Resume against the Job Description. Return a JSON object with a single key "score" containing an integer from 0 to 100 representing the match percentage.`;
+            const scoreRes = await callGroq(evalSysPromptJson, evalUserPrompt, 'llama-3.1-8b-instant');
+            let score = 0;
+            try {
+               score = JSON.parse(scoreRes).score || 0;
+            } catch(err) {
+               score = parseInt(scoreRes.replace(/\D/g, '')) || 0;
+            }
+            console.log(`  📈 ATS Score: ${score}%`);
+            
+            if (score >= 85) {
+                console.log(`  ✅ Score meets threshold (85%), stopping early.`);
+                tailoredJson = candidateJson;
+                break;
+            } else {
+                if (score >= bestScore) {
+                    bestScore = score;
+                    tailoredJson = candidateJson;
+                }
+                currentResumeJsonStr = JSON.stringify(candidateJson);
+                iteration++;
+            }
+        } else {
+            tailoredJson = candidateJson;
+            break;
+        }
+    }
   } catch(e) {
-    console.log('  ⚠️ Failed to generate tailored resume JSON, using base.');
+    console.log('  ⚠️ Failed to generate tailored resume JSON, using base.', e.message);
     return { pdfPath: fallbackPath, publicUrl: null, changes: 'Base Resume (No modifications)' };
   }
 
@@ -365,7 +603,7 @@ async function main() {
     return { ...j, eval_id: e.id, grade: e.letter_grade, score: e.weighted_score };
   }).sort((a, b) => b.score - a.score);
 
-  console.log(`\\\n🚀 Auto-applying to ${jobs.length} jobs via Playwright (AI Enabled)...\\\n`);
+  console.log(`\n🚀 Auto-applying to ${jobs.length} jobs via Playwright (AI Enabled)...\n`);
 
   const browser = await chromium.launch({ headless: true, slowMo: 100, timeout: 30000 });
   const context = await browser.newContext({
@@ -373,20 +611,46 @@ async function main() {
     viewport: { width: 1280, height: 900 },
   });
   
-  // Set a strict global timeout so the bot fails fast instead of hanging for 30s per bad field
-  context.setDefaultTimeout(3000);
+  // Set a reasonable timeout — 8s is more robust for async form rendering
+  context.setDefaultTimeout(8000);
 
-  const results = { applied: 0, failed: 0 };
+  const results = { applied: 0, failed: 0, skipped: 0 };
   const appliedJobs = [];
   const failedJobs = [];
 
+  // Target roles — skip jobs that are clearly irrelevant
+  const TARGET_KEYWORDS = ['data', 'devops', 'cloud', 'full stack', 'fullstack', 'backend', 'frontend', 'ai ', 'machine learning', 'ml ', 'analytics', 'infrastructure', 'platform', 'sre', 'site reliability', 'software engineer', 'developer'];
+  const SKIP_KEYWORDS = ['c++ developer', 'embedded', 'firmware', 'hardware', 'mechanical', 'civil', 'chemical', 'electrical engineer', 'nurse', 'doctor', 'sales rep', 'account executive'];
+
   for (const job of jobs) {
     const page = await context.newPage();
-    console.log(`\\\n━━━ ${job.title} @ ${job.company} ━━━`);
+    console.log(`\n━━━ ${job.title} @ ${job.company} ━━━`);
 
     try {
+      // Pre-filter: skip irrelevant roles to save API tokens
+      const titleLower = (job.title || '').toLowerCase();
+      const isRelevant = TARGET_KEYWORDS.some(kw => titleLower.includes(kw));
+      const isExcluded = SKIP_KEYWORDS.some(kw => titleLower.includes(kw));
+      if (isExcluded || (!isRelevant && !job.archetype)) {
+        console.log(`  ⏭️ Skipping: role "${job.title}" doesn't match target roles`);
+        results.skipped++;
+        await page.close().catch(() => {});
+        await supabase.from('jobs').update({ status: 'archived' }).eq('id', job.id);
+        continue;
+      }
+
       await page.goto(job.apply_link, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(2000);
+
+      // Pre-flight: detect dead/404 pages before wasting API tokens
+      const pageText = await page.textContent('body').catch(() => '');
+      const pageLower = pageText.toLowerCase();
+      if (pageLower.includes('page not found') || pageLower.includes('404') || pageLower.includes('this position has been filled') || pageLower.includes('this job is no longer available') || pageLower.includes('no longer accepting applications')) {
+        throw new Error('Dead page: job listing removed or expired');
+      }
+
+      // Dismiss cookie banners before interacting with the form
+      await dismissCookieBanners(page);
 
       // 1. Generate tailored resume (if possible)
       const tailoredInfo = await generateTailoredResume(job, context, supabase, RESUME_PATH);
@@ -395,6 +659,9 @@ async function main() {
 
       // 2. Fill base generic fields
       await fillBaseFields(page, activeResumePath);
+
+      // 2.5 Hard-code demographic/survey fields (gender, race, veteran, disability)
+      await fillDemographicFields(page);
 
       // 3. Fill custom dynamic fields via Groq AI
       await fillDynamicFields(page);
@@ -417,18 +684,18 @@ async function main() {
       // 4. Strict Verification
       await page.waitForTimeout(10000);
       const url = page.url().toLowerCase();
-      const pageText = await page.textContent('body').catch(() => '');
+      const postSubmitPageText = await page.textContent('body').catch(() => '');
       
-      if (pageText.toLowerCase().includes('please solve this captcha') || pageText.toLowerCase().includes('verify you are human') || pageText.toLowerCase().includes('checking if the site connection is secure')) {
+      if (postSubmitPageText.toLowerCase().includes('please solve this captcha') || postSubmitPageText.toLowerCase().includes('verify you are human') || postSubmitPageText.toLowerCase().includes('checking if the site connection is secure')) {
          job.hasCaptcha = true;
          throw new Error('Captcha Blocked Submission');
       }
       
       const isSuccessUrl = url.includes('thank') || url.includes('confirm') || url.includes('success');
-      const isSuccessText = pageText.toLowerCase().includes('thank you for applying') ||
-                            pageText.toLowerCase().includes('application received') ||
-                            pageText.toLowerCase().includes('application has been received') ||
-                            pageText.toLowerCase().includes('successfully submitted');
+      const isSuccessText = postSubmitPageText.toLowerCase().includes('thank you for applying') ||
+                            postSubmitPageText.toLowerCase().includes('application received') ||
+                            postSubmitPageText.toLowerCase().includes('application has been received') ||
+                            postSubmitPageText.toLowerCase().includes('successfully submitted');
 
       const hasErrors = await page.$('.error, .error-message, [aria-invalid="true"], .invalid, .parsley-error, .text-danger, .application-error').catch(() => null);
 
@@ -438,9 +705,9 @@ async function main() {
         if (btn && await btn.isVisible()) submitButtonStillThere = true;
       }
       
-      const needsEmailVerification = pageText.toLowerCase().includes('check your email') || 
-                                     pageText.toLowerCase().includes('verify your email') || 
-                                     pageText.toLowerCase().includes('confirm your email') ||
+      const needsEmailVerification = postSubmitPageText.toLowerCase().includes('check your email') || 
+                                     postSubmitPageText.toLowerCase().includes('verify your email') || 
+                                     postSubmitPageText.toLowerCase().includes('confirm your email') ||
                                      url.includes('join.com');
 
       // It is successful IF there are no visible errors AND (we hit a success URL OR we see a success message OR the submit button disappeared)
@@ -469,6 +736,15 @@ async function main() {
         }
         appliedJobs.push(job);
         await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id);
+        
+        // 6. Send Cold Email (Wait and ignore errors so it doesn't fail the pipeline)
+        try {
+          const { sendColdEmail } = await import('../services/cold-email.js');
+          const cvText = readFileSync(RESUME_PATH, 'utf-8');
+          await sendColdEmail(job, null, cvText, activeResumePath);
+        } catch (emailErr) {
+          console.log(`  ⚠️ Cold email failed: ${emailErr.message}`);
+        }
       } else {
         throw new Error('Validation error or missing success confirmation');
       }
@@ -497,7 +773,7 @@ async function main() {
 
   await browser.close();
 
-  console.log(`\n📊 Results: ${results.applied} applied, ${results.failed} failed/reverted\n`);
+  console.log(`\n📊 Results: ${results.applied} applied, ${results.failed} failed, ${results.skipped || 0} skipped\n`);
 
   for (const aj of appliedJobs) {
     const proofUrl = aj.app_id ? `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${aj.app_id}.jpeg` : undefined;
