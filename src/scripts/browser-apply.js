@@ -460,9 +460,10 @@ Rewrite the candidate's base resume strictly in JSON format to align perfectly w
 RULES:
 1. DO NOT REMOVE any experience blocks, past jobs, or education. You must keep all historical entries.
 2. DO NOT REMOVE any existing skills. You may APPEND new relevant skills to the existing skill lists if they match the job description.
-3. You may slightly reword the 'role' titles, the 'summary', and the 'bullets' inside 'experience' to better emphasize skills required by the job, but do NOT delete bullets. Just reword or append to them.
-4. Do NOT hallucinate new companies, degrees, or years of experience.
-5. Include a 'changes_made' string field summarizing the modifications in 1 sentence.
+3. You MUST change the main 'title' in the 'personal' section to exactly match or closely reflect the target Job Title.
+4. You may slightly reword the 'role' titles, the 'summary', and the 'bullets' inside 'experience' to better emphasize skills required by the job, but do NOT delete bullets. Just reword or append to them.
+5. Do NOT hallucinate new companies, degrees, or years of experience.
+6. Include a 'changes_made' string field summarizing the modifications in 1 sentence.
 Return ONLY valid JSON matching the structure of the provided base resume (adding 'changes_made').`;
 
   const userPrompt = `Job Title: ${job.title}\nJob Company: ${job.company}\nJob Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nBase Resume JSON:\n${baseJsonStr}`;
