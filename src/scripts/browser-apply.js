@@ -715,7 +715,6 @@ async function main() {
         console.log('  ✅ Application verified successful!');
         results.applied++;
         job.needsEmailVerification = needsEmailVerification;
-        appliedJobs.push(job);
         
         // 5. Insert Application and Take Screenshot Proof
         let methodCol = 'auto';
@@ -734,17 +733,24 @@ async function main() {
           const screenshotBuffer = readFileSync(screenshotPath);
           await supabase.storage.from('screenshots').upload(`${appData.id}.jpeg`, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
         }
-        appliedJobs.push(job);
+        job.resumeUsed = basename(activeResumePath || RESUME_PATH);
         await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id);
         
-        // 6. Send Cold Email (Wait and ignore errors so it doesn't fail the pipeline)
+        // 6. Send Cold Email and track result for Discord
         try {
           const { sendColdEmail } = await import('../services/cold-email.js');
           const cvText = readFileSync(RESUME_PATH, 'utf-8');
-          await sendColdEmail(job, null, cvText, activeResumePath);
+          const coldEmailTarget = `hiring@${job.company.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
+          const emailSent = await sendColdEmail(job, null, cvText, activeResumePath);
+          job.coldEmailSent = emailSent;
+          job.coldEmailTarget = coldEmailTarget;
         } catch (emailErr) {
           console.log(`  ⚠️ Cold email failed: ${emailErr.message}`);
+          job.coldEmailSent = false;
+          job.coldEmailError = emailErr.message;
         }
+
+        appliedJobs.push(job);
       } else {
         throw new Error('Validation error or missing success confirmation');
       }
@@ -777,13 +783,17 @@ async function main() {
 
   for (const aj of appliedJobs) {
     const proofUrl = aj.app_id ? `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${aj.app_id}.jpeg` : undefined;
+    const coldEmailStatus = aj.coldEmailSent
+      ? `✅ Cold email sent to \`${aj.coldEmailTarget}\``
+      : `❌ Cold email not sent${aj.coldEmailError ? ` (${aj.coldEmailError})` : ''}`;
     await sendDiscordEmbed({
       title: `✅ Auto-Applied: ${aj.title}`,
       description: `Successfully applied to **${aj.company}**!${aj.needsEmailVerification ? '\n\n⚠️ **ATTENTION:** This platform requires email verification. Please check your inbox and click the confirmation link to finalize your application!' : ''}`,
       color: 0x00d2a0,
       fields: [
         { name: '⭐ ATS Score', value: `${aj.score ? aj.score.toFixed(1) : '?'} / 5.0`, inline: true },
-        { name: '📄 Resume Used', value: basename(RESUME_PATH), inline: true }
+        { name: '📄 Resume Used', value: aj.resumeUsed || basename(RESUME_PATH), inline: true },
+        { name: '📧 Cold Email', value: coldEmailStatus, inline: false }
       ],
       image: proofUrl ? { url: proofUrl } : undefined,
       timestamp: new Date().toISOString()
