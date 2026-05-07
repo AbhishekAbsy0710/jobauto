@@ -681,37 +681,67 @@ async function main() {
 
       if (!submitted) throw new Error('No submit button found');
 
-      // 4. Strict Verification
+      // 4. Strict Verification — require EXPLICIT confirmation, never assume success
       await page.waitForTimeout(10000);
       const url = page.url().toLowerCase();
       const postSubmitPageText = await page.textContent('body').catch(() => '');
+      const postSubmitLower = postSubmitPageText.toLowerCase();
       
-      if (postSubmitPageText.toLowerCase().includes('please solve this captcha') || postSubmitPageText.toLowerCase().includes('verify you are human') || postSubmitPageText.toLowerCase().includes('checking if the site connection is secure')) {
+      // --- Bot/Captcha detection ---
+      if (postSubmitLower.includes('please solve this captcha') || postSubmitLower.includes('verify you are human') || postSubmitLower.includes('checking if the site connection is secure')) {
          job.hasCaptcha = true;
          throw new Error('Captcha Blocked Submission');
       }
-      
-      const isSuccessUrl = url.includes('thank') || url.includes('confirm') || url.includes('success');
-      const isSuccessText = postSubmitPageText.toLowerCase().includes('thank you for applying') ||
-                            postSubmitPageText.toLowerCase().includes('application received') ||
-                            postSubmitPageText.toLowerCase().includes('application has been received') ||
-                            postSubmitPageText.toLowerCase().includes('successfully submitted');
 
-      const hasErrors = await page.$('.error, .error-message, [aria-invalid="true"], .invalid, .parsley-error, .text-danger, .application-error').catch(() => null);
-
-      let submitButtonStillThere = false;
-      for (const sel of submitSelectors) {
-        const btn = await page.$(sel);
-        if (btn && await btn.isVisible()) submitButtonStillThere = true;
+      // --- Spam/bot block detection ---
+      if (postSubmitLower.includes('flagged as possible spam') || postSubmitLower.includes('flagged as spam') || postSubmitLower.includes('submission was blocked') || postSubmitLower.includes('robot') || postSubmitLower.includes('automated submission')) {
+        throw new Error('Submission blocked as spam/bot by ATS');
       }
       
-      const needsEmailVerification = postSubmitPageText.toLowerCase().includes('check your email') || 
-                                     postSubmitPageText.toLowerCase().includes('verify your email') || 
-                                     postSubmitPageText.toLowerCase().includes('confirm your email') ||
+      // --- SUCCESS requires an EXPLICIT positive signal ---
+      const isSuccessUrl = url.includes('/thank') || url.includes('thank_you') || url.includes('/confirmation') || url.includes('/applied') || url.includes('/success');
+      const isSuccessText = postSubmitLower.includes('thank you for applying') ||
+                            postSubmitLower.includes('application received') ||
+                            postSubmitLower.includes('application has been received') ||
+                            postSubmitLower.includes('successfully submitted') ||
+                            postSubmitLower.includes('your job application has been sent') ||
+                            postSubmitLower.includes('we have received your application') ||
+                            postSubmitLower.includes('application was submitted') ||
+                            postSubmitLower.includes('you have applied');
+
+      // --- ERROR detection (broadened to catch banner-style errors) ---
+      const errorSelectors = [
+        '.error', '.error-message', '.error-banner', '.alert-danger', '.alert-error',
+        '[aria-invalid="true"]', '.invalid', '.parsley-error', '.text-danger',
+        '.application-error', '.form-error', '.validation-error', '[role="alert"]'
+      ];
+      let hasErrors = false;
+      for (const sel of errorSelectors) {
+        const el = await page.$(sel).catch(() => null);
+        if (el && await el.isVisible().catch(() => false)) {
+          const errText = await el.textContent().catch(() => '');
+          // Ignore generic aria alerts that are not errors
+          if (errText && errText.trim().length > 0 && !errText.toLowerCase().includes('success')) {
+            console.log(`  ⚠️ Error element detected: "${errText.trim().substring(0, 80)}"`);
+            hasErrors = true;
+            break;
+          }
+        }
+      }
+
+      // Also check for error-like text in page body
+      if (!hasErrors && (postSubmitLower.includes('missing entry for required field') || postSubmitLower.includes('please fill in') || postSubmitLower.includes('this field is required') || postSubmitLower.includes('required field'))) {
+        console.log(`  ⚠️ Required field validation error detected in page text`);
+        hasErrors = true;
+      }
+      
+      const needsEmailVerification = postSubmitLower.includes('check your email') || 
+                                     postSubmitLower.includes('verify your email') || 
+                                     postSubmitLower.includes('confirm your email') ||
                                      url.includes('join.com');
 
-      // It is successful IF there are no visible errors AND (we hit a success URL OR we see a success message OR the submit button disappeared)
-      if (!hasErrors && (isSuccessUrl || isSuccessText || !submitButtonStillThere)) {
+      // SUCCESS = explicit positive signal AND no errors. NO LONGER fallback on !submitButtonStillThere
+      if (!hasErrors && (isSuccessUrl || isSuccessText)) {
         console.log('  ✅ Application verified successful!');
         results.applied++;
         job.needsEmailVerification = needsEmailVerification;
