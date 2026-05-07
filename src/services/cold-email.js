@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { loadConfig } from '../config.js';
+import { findHiringManagerEmail } from './email-finder.js';
 
 // Shared Groq call (use 8b for speed, fallback to 70b)
 async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant') {
@@ -87,9 +88,9 @@ export async function sendColdEmail(job, emailAddress, resumeContent, resumePdfP
   }
   
   if (!emailAddress) {
-     // Fallback guess
-     emailAddress = `hiring@${job.company.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
-     console.log(`  📧 No email provided, guessing: ${emailAddress}`);
+    // Use DNS+SMTP email finder instead of a naive guess
+    console.log(`  🔍 Looking up hiring manager email for ${job.company}...`);
+    emailAddress = await findHiringManagerEmail(job.company);
   }
 
   console.log(`  📧 Generating cold email for ${job.company}...`);
