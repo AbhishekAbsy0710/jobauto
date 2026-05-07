@@ -856,8 +856,12 @@ async function main() {
 
       await sendDiscordEmbed({
         title: `⚠️ Auto-Apply Failed: ${fj.title}`,
-        description: `Failed to auto-apply to **${fj.company}**. It has been safely returned to your **Manual Queue**.\\n\\n**Reason:** ${failureReason}\\nCheck the screenshot below to see exactly what the bot saw!\\n\\n[👉 Click Here to Apply Manually](${fj.apply_link})`,
+        description: `Failed to auto-apply to **${fj.company}**. Returned to **Manual Queue**.`,
         color: 0xff4500,
+        fields: [
+          { name: '❌ Reason', value: failureReason.substring(0, 100), inline: false },
+          { name: '👉 Apply Manually', value: `[Click Here](${fj.apply_link})`, inline: false }
+        ],
         image: errorProofUrl ? { url: errorProofUrl } : undefined,
         timestamp: new Date().toISOString()
       });
