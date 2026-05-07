@@ -851,11 +851,17 @@ async function main() {
         // 6. Send Cold Email and track result for Discord
         try {
           const { sendColdEmail } = await import('../services/cold-email.js');
-          const cvText = readFileSync(RESUME_PATH, 'utf-8');
-          const coldEmailTarget = `hiring@${job.company.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`;
-          const emailSent = await sendColdEmail(job, null, cvText, activeResumePath);
-          job.coldEmailSent = emailSent;
-          job.coldEmailTarget = coldEmailTarget;
+          // Use readable YAML profile instead of raw PDF bytes which breaks Groq!
+          const cvText = PROFILE_YAML; 
+          const emailSentTo = await sendColdEmail(job, null, cvText, activeResumePath);
+          
+          if (emailSentTo) {
+            job.coldEmailSent = true;
+            job.coldEmailTarget = emailSentTo;
+          } else {
+            job.coldEmailSent = false;
+            job.coldEmailError = 'AI generation failed or target blocked';
+          }
         } catch (emailErr) {
           console.log(`  ⚠️ Cold email failed: ${emailErr.message}`);
           job.coldEmailSent = false;

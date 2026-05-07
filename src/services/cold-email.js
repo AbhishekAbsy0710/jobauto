@@ -126,7 +126,7 @@ export async function sendColdEmail(job, emailAddress, resumeContent, resumePdfP
   try {
     const info = await transporter.sendMail(mailOptions);
     console.log(`  ✅ Cold email sent to ${emailAddress}! Message ID: ${info.messageId}`);
-    return true;
+    return emailAddress;
   } catch (error) {
     console.log(`  ❌ Failed to send cold email: ${error.message}`);
     return false;
