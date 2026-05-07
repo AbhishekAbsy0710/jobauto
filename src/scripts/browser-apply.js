@@ -666,20 +666,102 @@ async function main() {
       // 3. Fill custom dynamic fields via Groq AI
       await fillDynamicFields(page);
 
-      // 4. Submit
+      // 4. Multi-step form navigation loop (handles Greenhouse, Ashby, Lever, Workday)
+      // Each iteration: fill visible fields → try Submit → else try Next → repeat
+      const MAX_STEPS = 10;
       let submitted = false;
-      const submitSelectors = ['button[type="submit"]', 'input[type="submit"]', 'button:has-text("Submit")', 'button:has-text("Apply")', 'button.submit-application', '#submit_app'];
-      for (const sel of submitSelectors) {
-        const btn = await page.$(sel);
-        if (btn && await btn.isVisible()) {
-          console.log('  🔘 Clicking submit...');
-          await btn.click();
-          submitted = true;
-          break;
+      let stepCount = 0;
+
+      const SUBMIT_SELECTORS = [
+        'button[type="submit"]',
+        'input[type="submit"]',
+        'button:has-text("Submit Application")',
+        'button:has-text("Submit application")',
+        'button:has-text("Submit")',
+        'button.submit-application',
+        '#submit_app',
+        'button[data-testid="submit-application"]',
+      ];
+      const NEXT_SELECTORS = [
+        'button:has-text("Next")',
+        'button:has-text("Continue")',
+        'button:has-text("Weiter")',
+        'button:has-text("Next Step")',
+        'button:has-text("Next Page")',
+        'button[data-testid="next-button"]',
+        'button[data-testid="continue"]',
+        'a:has-text("Next")',
+        'a:has-text("Continue")',
+        '.next-btn',
+        '#next-button',
+      ];
+      const FINAL_PAGE_SIGNALS = ['review your application', 'review and submit', 'überprüfen', 'zusammenfassung'];
+
+      while (!submitted && stepCount < MAX_STEPS) {
+        stepCount++;
+        console.log(`  📄 Form step ${stepCount}/${MAX_STEPS}...`);
+
+        // Re-fill fields on every new step (each step = new DOM)
+        await fillBaseFields(page, activeResumePath);
+        await fillDemographicFields(page);
+        await fillDynamicFields(page);
+        await page.waitForTimeout(800);
+
+        // Check if this is a review/summary step
+        const stepBodyText = await page.textContent('body').catch(() => '');
+        const isReviewStep = FINAL_PAGE_SIGNALS.some(s => stepBodyText.toLowerCase().includes(s));
+
+        // Try Submit first (always highest priority)
+        let clickedSomething = false;
+        for (const sel of SUBMIT_SELECTORS) {
+          const btn = await page.$(sel).catch(() => null);
+          if (btn && await btn.isVisible().catch(() => false)) {
+            console.log(`  🔘 Step ${stepCount}: Clicking SUBMIT`);
+            await btn.click();
+            submitted = true;
+            clickedSomething = true;
+            break;
+          }
+        }
+        if (submitted) break;
+
+        // On a review step, wait once more for Submit to appear
+        if (isReviewStep) {
+          console.log(`  🔎 Review step detected — waiting 2s for submit button...`);
+          await page.waitForTimeout(2000);
+          for (const sel of SUBMIT_SELECTORS) {
+            const btn = await page.$(sel).catch(() => null);
+            if (btn && await btn.isVisible().catch(() => false)) {
+              console.log(`  🔘 Clicking SUBMIT on review step`);
+              await btn.click();
+              submitted = true;
+              clickedSomething = true;
+              break;
+            }
+          }
+          if (submitted) break;
+        }
+
+        // Try Next/Continue to advance to the next step
+        for (const sel of NEXT_SELECTORS) {
+          const btn = await page.$(sel).catch(() => null);
+          if (btn && await btn.isVisible().catch(() => false)) {
+            const btnText = await btn.textContent().catch(() => sel);
+            console.log(`  ➡️  Step ${stepCount}: Clicking NEXT → "${btnText.trim()}"`);
+            await btn.click();
+            clickedSomething = true;
+            await page.waitForTimeout(2500);
+            break;
+          }
+        }
+
+        if (!clickedSomething) {
+          throw new Error(`No Submit or Next button found on step ${stepCount}`);
         }
       }
 
-      if (!submitted) throw new Error('No submit button found');
+      if (!submitted) throw new Error(`Form exceeded ${MAX_STEPS} steps without Submit button`);
+
 
       // 4. Strict Verification — require EXPLICIT confirmation, never assume success
       await page.waitForTimeout(10000);
