@@ -455,74 +455,54 @@ async function generateTailoredResume(job, context, supabase, fallbackPath) {
   console.log(`  🤖 Tailoring resume for ${job.company} - ${job.title}...`);
   const baseJsonStr = readFileSync(baseJsonPath, 'utf8');
 
-  const sysPrompt = `You are an expert technical recruiter and resume writer.
-Rewrite the candidate's base resume strictly in JSON format to align perfectly with the target Job Description.
-RULES:
-1. DO NOT REMOVE any experience blocks, past jobs, or education. You must keep all historical entries.
-2. DO NOT REMOVE any existing skills. You may APPEND new relevant skills to the existing skill lists if they match the job description.
-3. You MUST change the main 'title' in the 'personal' section to exactly match or closely reflect the target Job Title.
-4. You may slightly reword the 'role' titles, the 'summary', and the 'bullets' inside 'experience' to better emphasize skills required by the job, but do NOT delete bullets. Just reword or append to them.
-5. Do NOT hallucinate new companies, degrees, or years of experience.
-6. Include a 'changes_made' string field summarizing the modifications in 1 sentence.
-Return ONLY valid JSON matching the structure of the provided base resume (adding 'changes_made').`;
+  const sysPrompt = `You are an expert technical recruiter. Your task is to tailor the candidate's resume for the target Job Description to maximize ATS match.
+To prevent hallucinations or loss of data, you are ONLY allowed to output three things in JSON format:
+1. "title": A new professional title that closely matches the target job.
+2. "summary": A tailored professional summary (approx. 3-4 sentences) that highlights the candidate's existing experience in a way that matches the job description. Do NOT invent new experience.
+3. "new_skills": An array of strings containing 3 to 8 relevant keywords/skills from the Job Description that the candidate realistically possesses based on their base resume.
 
-  const userPrompt = `Job Title: ${job.title}\nJob Company: ${job.company}\nJob Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nBase Resume JSON:\n${baseJsonStr}`;
+Return ONLY valid JSON matching this exact structure:
+{
+  "title": "string",
+  "summary": "string",
+  "new_skills": ["string"]
+}`;
 
-  let tailoredJson;
-  let iteration = 1;
-  const maxIterations = 2;
+  const userPrompt = `Job Title: ${job.title}\nJob Company: ${job.company}\nJob Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nCandidate's Base Resume:\n${baseJsonStr}`;
+
+  let tailoredJson = JSON.parse(baseJsonStr);
   
   try {
-    let currentResumeJsonStr = baseJsonStr;
-    let bestScore = 0;
+    console.log(`  🔄 Generating tailored Summary, Title, and Skills...`);
+    const res = await callGroq(sysPrompt, userPrompt);
+    const match = res.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("No JSON found");
     
-    while (iteration <= maxIterations) {
-        console.log(`  🔄 Tailoring iteration ${iteration}/${maxIterations}...`);
-        const iterUserPrompt = `Job Title: ${job.title}\nJob Company: ${job.company}\nJob Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nCurrent Resume JSON:\n${currentResumeJsonStr}`;
-        
-        const res = await callGroq(sysPrompt, iterUserPrompt);
-        const match = res.match(/\{[\s\S]*\}/);
-        if (!match) throw new Error("No JSON found");
-        
-        const candidateJson = JSON.parse(match[0]);
-        
-        if (iteration < maxIterations) {
-            console.log(`  📊 Evaluating tailored resume...`);
-            // We need to temporarily change response_format to text for the ATS score
-            const evalSysPrompt = `You are a strict ATS (Applicant Tracking System). Compare the Candidate's Resume JSON against the Job Description. Return ONLY a raw integer from 0 to 100 representing the match percentage. Do not include any other text or explanation. Output must be exactly a number like: 82`;
-            const evalUserPrompt = `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume JSON:\n${JSON.stringify(candidateJson)}`;
-            
-            // For scoring we don't strictly need JSON format, but callGroq is hardcoded to json_object. 
-            // So we can wrap the instruction to return a JSON with a single "score" field.
-            const evalSysPromptJson = `You are a strict ATS (Applicant Tracking System). Compare the Candidate's Resume against the Job Description. Return a JSON object with a single key "score" containing an integer from 0 to 100 representing the match percentage.`;
-            const scoreRes = await callGroq(evalSysPromptJson, evalUserPrompt, 'llama-3.1-8b-instant');
-            let score = 0;
-            try {
-               score = JSON.parse(scoreRes).score || 0;
-            } catch(err) {
-               score = parseInt(scoreRes.replace(/\D/g, '')) || 0;
-            }
-            console.log(`  📈 ATS Score: ${score}%`);
-            
-            if (score >= 85) {
-                console.log(`  ✅ Score meets threshold (85%), stopping early.`);
-                tailoredJson = candidateJson;
-                break;
-            } else {
-                if (score >= bestScore) {
-                    bestScore = score;
-                    tailoredJson = candidateJson;
-                }
-                currentResumeJsonStr = JSON.stringify(candidateJson);
-                iteration++;
-            }
-        } else {
-            tailoredJson = candidateJson;
-            break;
-        }
+    const patchJson = JSON.parse(match[0]);
+    
+    // Apply patches safely
+    if (patchJson.title) tailoredJson.personal.title = patchJson.title;
+    if (patchJson.summary) tailoredJson.summary = patchJson.summary;
+    if (patchJson.new_skills && Array.isArray(patchJson.new_skills) && patchJson.new_skills.length > 0) {
+        // Append new skills to the first category, or create an 'Added Skills' category
+        tailoredJson.skills['Tailored Skills'] = patchJson.new_skills.join(', ');
     }
+    
+    // Evaluate the new tailored resume
+    console.log(`  📊 Evaluating tailored resume...`);
+    const evalSysPromptJson = `You are a strict ATS (Applicant Tracking System). Compare the Candidate's Resume against the Job Description. Return a JSON object with a single key "score" containing an integer from 0 to 100 representing the match percentage.`;
+    const evalUserPrompt = `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume JSON:\n${JSON.stringify(tailoredJson)}`;
+    const scoreRes = await callGroq(evalSysPromptJson, evalUserPrompt, 'llama-3.1-8b-instant');
+    let score = 0;
+    try {
+        score = JSON.parse(scoreRes.match(/\{[\s\S]*\}/)[0]).score || 0;
+    } catch(err) {
+        score = parseInt(scoreRes.replace(/\D/g, '')) || 0;
+    }
+    console.log(`  📈 ATS Score: ${score}%`);
+    
   } catch(e) {
-    console.log('  ⚠️ Failed to generate tailored resume JSON, using base.', e.message);
+    console.log('  ⚠️ Failed to generate tailored resume sections, using base.', e.message);
     return { pdfPath: fallbackPath, publicUrl: null, changes: 'Base Resume (No modifications)' };
   }
 
