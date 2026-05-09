@@ -117,8 +117,8 @@ function buildUserPrompt(cvContent, job, profile) {
   const prefs = profile.preferences || {};
   const comp = profile.compensation || {};
 
-  // Truncate CV to key sections only for speed
-  const shortCV = cvContent.slice(0, 1500);
+  // Pass the full relevant CV (up to 6000 chars) instead of heavily truncating it
+  const shortCV = cvContent.slice(0, 6000);
 
   return `CV SUMMARY:
 ${shortCV}
@@ -128,7 +128,7 @@ TARGET: ${(profile.target_roles || []).join(', ')} | ${(profile.target_locations
 JOB: ${job.title} at ${job.company} (${job.platform})
 Location: ${job.location || 'N/A'} | Remote: ${job.remote ? 'Yes' : 'Unknown'}
 Description:
-${(job.description || 'No description').slice(0, 1500)}
+${(job.description || 'No description').slice(0, 4000)}
 
 Return ONLY JSON.`;
 }
