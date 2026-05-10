@@ -516,8 +516,9 @@ function switchTab(tab) {
   document.getElementById('queue-section').style.display = 'none';
 
   if (tab === 'applied') {
-    const applied = allJobs.filter(j => j.status === 'applied');
-    renderJobs(applied);
+    // Hide cards, show only the application records table for clear confirmation
+    document.getElementById('job-grid').style.display = 'none';
+    document.getElementById('filter-bar').style.display = 'none';
     loadApplied();
   } else if (tab === 'queue') {
     const queued = allJobs.filter(j =>
@@ -567,12 +568,25 @@ async function loadApplied() {
       const methodColors = { auto: '#00d2a0', manual: '#4da6ff' };
       const methodBg = methodColors[a.method] || '#666';
 
+      // Status badge
+      const statusBadge = a.app_status === 'applied' || a.app_status === 'submitted'
+        ? '<span style="background:#00d2a0;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">✅ DISPATCHED</span>'
+        : a.app_status === 'failed'
+          ? '<span style="background:#ff5252;color:#fff;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">❌ FAILED</span>'
+          : '<span style="background:#ffd93d;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">⏳ PENDING</span>';
+
+      // Tailored resume link
+      const resumeLink = a.pdf_path
+        ? `<a href="${a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : '/api/resume'}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 View PDF</a>`
+        : '—';
+
       return `
         <tr>
           <td title="${dateStr}">
             <div style="font-weight:500;font-size:12px;">${dateStr}</div>
             <div style="font-size:11px;color:var(--text-muted);">${timeAgo}</div>
           </td>
+          <td>${statusBadge}</td>
           <td><strong>${esc(a.company || 'N/A')}</strong></td>
           <td>${esc(a.title || 'N/A')}</td>
           <td>📍 ${esc(a.location || 'N/A')}</td>
@@ -580,12 +594,7 @@ async function loadApplied() {
           <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${(a.method ? a.method.split('|')[0].trim() : 'manual').toUpperCase()}</span></td>
           <td><span class="grade-badge grade-${a.letter_grade}" style="font-size:12px;width:28px;height:28px;">${a.letter_grade || '?'}</span></td>
           <td style="font-weight:600;">${a.weighted_score ? a.weighted_score.toFixed(1) : '?'}/5</td>
-          <td>
-            <a href="${a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : '/api/resume'}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;" title="View resume used">📄 ${a.pdf_path && !a.pdf_path.startsWith('http') ? a.pdf_path.split('/').pop() : (a.pdf_path && a.pdf_path.startsWith('http') && a.status !== 'failed' ? 'Tailored Resume' : 'resume.pdf')}</a>
-            <br>
-            <a href="${a.status === 'failed' && a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${a.app_id}.jpeg`}" target="_blank" style="color:#ffd93d;text-decoration:none;font-size:11px;font-weight:500;" title="View Submission Proof">📸 View Proof</a>
-          </td>
-          <td style="font-size:11px;color:var(--text-muted);">${a.method && a.method.includes('|') ? esc(a.method.split('|')[1].trim()) : 'Base Resume (No modifications)'}</td>
+          <td>${resumeLink}</td>
           <td>${a.apply_link ? '<a href="' + a.apply_link + '" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View Job</a>' : '—'}</td>
         </tr>
       `;

@@ -20,10 +20,8 @@ export function startScheduler() {
         const { evaluateNewJobs } = await import('./services/actionRouter.js');
         await evaluateNewJobs(30);
 
-        // Step 3: Browser auto-apply to queued Grade A/B jobs
-        console.log('  🚀 Step 3: Auto-applying...');
-        await runBrowserApply();
-
+        // Step 3: API/n8n auto-apply handled within evaluateNewJobs if mode=auto
+        // (Queue processor runs independently in other scripts if needed)
         console.log('  ✅ Pipeline complete!');
       } catch (error) {
         console.error('❌ [CRON] Pipeline failed:', error.message);
@@ -31,16 +29,8 @@ export function startScheduler() {
     });
 
     // ============================================
-    // APPLY-ONLY: Every 2 hours (picks up any new queue items)
+    // APPLY-ONLY: Removed (now handled by n8n webhook routing)
     // ============================================
-    cron.schedule('30 */2 * * *', async () => {
-      console.log('\n⏰ [CRON] Running apply cycle...');
-      try {
-        await runBrowserApply();
-      } catch (error) {
-        console.error('❌ [CRON] Apply failed:', error.message);
-      }
-    });
 
     // ============================================
     // DAILY SUMMARY: 20:00
@@ -85,24 +75,3 @@ export function startScheduler() {
   }).catch(e => console.error('Scheduler init failed:', e.message));
 }
 
-// ============================================
-// BROWSER AUTO-APPLY (Playwright)
-// ============================================
-async function runBrowserApply() {
-  try {
-    const { execSync } = await import('child_process');
-    const path = await import('path');
-    const { fileURLToPath } = await import('url');
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const scriptPath = path.join(__dirname, 'scripts', 'browser-apply.js');
-
-    console.log('  🌐 Launching Playwright auto-apply...');
-    execSync(`PLAYWRIGHT_BROWSERS_PATH=0 node ${scriptPath}`, {
-      cwd: path.join(__dirname, '..'),
-      timeout: 600000, // 10 min max
-      stdio: 'inherit',
-    });
-  } catch (e) {
-    console.error('  ⚠️ Browser apply error:', e.message?.slice(0, 200));
-  }
-}

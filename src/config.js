@@ -39,6 +39,7 @@ export function loadConfig() {
     applicantEmail: process.env.APPLICANT_EMAIL || env.APPLICANT_EMAIL || '',
     applicantPhone: process.env.APPLICANT_PHONE || env.APPLICANT_PHONE || '',
     autoApplyMode: process.env.AUTO_APPLY_MODE || env.AUTO_APPLY_MODE || 'approval',
+    n8nWebhookUrl: process.env.N8N_WEBHOOK_URL || env.N8N_WEBHOOK_URL || '',
     searchKeywords: (process.env.SEARCH_KEYWORDS || env.SEARCH_KEYWORDS || 'DevOps Engineer,Cloud Engineer,Full Stack Developer,Data Engineer,AI Engineer').split(',').map(s => s.trim()),
     searchLocations: (process.env.SEARCH_LOCATIONS || env.SEARCH_LOCATIONS || 'Switzerland,Germany,Luxembourg,Netherlands,Austria,Belgium,France,Remote').split(',').map(s => s.trim()),
   };

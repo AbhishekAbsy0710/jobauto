@@ -16,11 +16,10 @@ identity:
 # Your career narrative — what makes you unique
 narrative: |
   Full-stack engineer with 4+ years spanning DevOps, cloud infrastructure,
-  and AI/ML integration. Built and deployed production systems at Ayonic GmbH
+  and AI/ML integration. Currently pursuing an MSc in Data Analytics. Built and deployed production systems at Ayonic GmbH
   handling Azure infrastructure, CI/CD pipelines, and Flutter mobile apps.
-  Currently expanding into AI engineering with hands-on RAG, LLM fine-tuning,
-  and data pipeline experience. Looking for roles that combine infrastructure
-  expertise with applied AI.
+  Strong academic and practical foundation in data engineering, data science, and AI pipelines. 
+  Highly suitable for Data Analyst, Data Scientist, Data Engineer, and AI Engineer roles, combining deep infrastructure expertise with applied AI and data analytics.
 
 # Target roles — these map to archetypes for scoring
 target_roles:
@@ -44,7 +43,7 @@ target_locations:
 
 # Salary expectations (used for Compensation Fit scoring)
 compensation:
-  min_annual_eur: 65000
+  min_annual_eur: 55000
   target_annual_eur: 85000
   currency: EUR
   open_to_equity: true

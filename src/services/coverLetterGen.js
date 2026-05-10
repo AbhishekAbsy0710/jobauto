@@ -10,7 +10,8 @@ export async function generateCoverLetter(job, evaluation) {
   const profile = loadProfile();
   const cvContent = loadCV();
 
-  const matchingSkills = (evaluation?.matching_skills || []).join(', ');
+  const matchingSkillsRaw = evaluation?.matching_skills;
+  const matchingSkills = (Array.isArray(matchingSkillsRaw) ? matchingSkillsRaw : (typeof matchingSkillsRaw === 'string' ? [matchingSkillsRaw] : [])).join(', ');
   const starStories = evaluation?.star_stories || [];
   const starText = starStories.length > 0
     ? starStories.map(s => `${s.situation} → ${s.action} → ${s.result}`).join('\n')

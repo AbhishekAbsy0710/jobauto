@@ -4,15 +4,16 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { loadConfig, loadProfile } from '../config.js';
 import { insertApplication, updateJobStatus } from '../database.js';
-// pdfGenerator and resumeTailor loaded lazily to avoid Playwright dependency at import time
+import { generateTailoredResume } from './resumeBuilder.js';
+import { submitToATS, DRY_RUN } from './atsSubmitter.js';
 
 /**
  * Auto-Apply Service.
- * Submits applications via Greenhouse, Lever, and Ashby public APIs.
- * For non-API platforms, generates tailored PDF and notifies for manual apply.
+ * Submits applications via ATS public APIs (Greenhouse, Lever, Ashby).
+ * Falls back to n8n webhook for unsupported platforms.
  */
 
-const API_PLATFORMS = ['greenhouse', 'lever', 'ashby'];
+const ATS_PLATFORMS = ['greenhouse', 'lever', 'ashby'];
 
 export async function processApplication(job, evaluation) {
   const config = loadConfig();
@@ -23,28 +24,29 @@ export async function processApplication(job, evaluation) {
     return { status: 'skipped', reason: 'auto-apply off' };
   }
 
-  console.log(`\n  🚀 Processing application: ${job.title} at ${job.company}`);
+  const platform = (job.platform || '').toLowerCase();
+  console.log(`\n  🚀 Processing application: ${job.title} at ${job.company} [${platform}]`);
 
   try {
-    // Step 1: Tailor resume (via Ollama)
-    let tailoredBullets = [];
-    try {
-      const { tailorResume } = await import('./resumeTailor.js');
-      console.log('  📝 Step 1: Tailoring resume...');
-      tailoredBullets = await tailorResume(job, evaluation);
-    } catch (e) {
-      console.log(`  ⚠️ Resume tailoring skipped: ${e.message}`);
-    }
-
-    // Step 2: Use base resume PDF (Playwright PDF gen disabled — too heavy)
+    // Step 1 & 2: V2 Non-Destructive Tailoring & PDF Generation
     let pdfResult = null;
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    const basePdf = join(__dirname, '..', '..', 'resume', 'resume.pdf');
-    if (existsSync(basePdf)) {
-      pdfResult = { path: basePdf, filename: 'Abhishek_Raj_Pagadala_Resume.pdf' };
-      console.log('  📄 Step 2: Using base resume PDF');
-    } else {
-      console.log('  ⚠️ No resume PDF found at resume/resume.pdf');
+    try {
+      console.log('  📝 Step 1 & 2: Generating V2 tailored HTML...');
+      const fallbackPdf = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'resume', 'resume.pdf');
+      const genResult = await generateTailoredResume(job, null, null, fallbackPdf);
+      
+      pdfResult = { 
+        path: genResult.pdfPath, 
+        filename: `Abhishek_Raj_Pagadala_Resume_${job.id}.pdf` 
+      };
+      console.log(`  📄 Tailored resume ready fallback used for PDF`);
+    } catch (e) {
+      console.log(`  ⚠️ Resume generation failed: ${e.message}`);
+      // Fallback
+      const fallbackPdf = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'resume', 'resume.pdf');
+      if (existsSync(fallbackPdf)) {
+        pdfResult = { path: fallbackPdf, filename: 'Abhishek_Raj_Pagadala_Resume.pdf' };
+      }
     }
 
     // Step 3: Generate cover letter
@@ -57,38 +59,79 @@ export async function processApplication(job, evaluation) {
       console.log(`  ⚠️ Cover letter skipped: ${e.message}`);
     }
 
-    // Step 4: Submit or notify
-    const platform = (job.platform || '').toLowerCase();
-    const canAutoApply = API_PLATFORMS.includes(platform);
+    if (!pdfResult) {
+      console.log(`  ❌ No resume available — cannot apply`);
+      return { status: 'failed', error: 'No resume PDF available' };
+    }
 
-    if (canAutoApply && pdfResult) {
-      console.log(`  🤖 Step 4: Auto-submitting via ${platform} API...`);
-      const result = await submitApplication(job, evaluation, pdfResult, coverLetter, config, profile);
+    // Step 4: Submit — ATS API first, then n8n fallback
+    const applicant = {
+      name: profile.identity?.name || 'Abhishek Raj Pagadala',
+      email: config.applicantEmail,
+      phone: config.applicantPhone,
+      linkedin: profile.identity?.linkedin || '',
+    };
+
+    let result;
+    let method = 'n8n';
+
+    if (ATS_PLATFORMS.includes(platform)) {
+      // Try direct ATS API submission
+      console.log(`  🎯 Step 4: Direct ATS submission (${platform})...`);
+      result = await submitToATS(platform, job.apply_link, applicant, pdfResult.path, coverLetter);
 
       if (result.success) {
-        insertApplication(evaluation.id || 0, 'auto', pdfResult.path);
-        updateJobStatus(job.id, 'applied');
-        console.log(`  ✅ Application submitted to ${job.company}!`);
+        method = result.method || `${platform}_api`;
+        const dryNote = result.dryRun ? ' [DRY RUN]' : '';
+        console.log(`  ✅ ATS SUBMITTED → ${job.company} via ${method}${dryNote}`);
+        if (result.confirmationId) {
+          console.log(`  🆔 Confirmation: ${result.confirmationId}`);
+        }
+      } else {
+        // ATS failed — fall back to n8n
+        console.log(`  ⚠️ ATS API failed (${result.error}), falling back to n8n webhook...`);
+        if (config.n8nWebhookUrl) {
+          result = await submitToN8N(job, evaluation, pdfResult, coverLetter, config, profile);
+          method = 'n8n_fallback';
+        }
       }
-
-      return {
-        status: result.success ? 'submitted' : 'failed',
-        platform,
-        pdfPath: pdfResult.path,
-        coverLetter,
-        error: result.error
-      };
+    } else if (config.n8nWebhookUrl) {
+      // Non-ATS platform — go straight to n8n
+      console.log(`  🤖 Step 4: Dispatching to n8n webhook (${platform})...`);
+      result = await submitToN8N(job, evaluation, pdfResult, coverLetter, config, profile);
+      method = 'n8n';
     } else {
       console.log(`  👋 Step 4: ${platform} — materials ready for manual apply`);
       return {
         status: 'manual',
         platform,
-        pdfPath: pdfResult?.path,
-        pdfFilename: pdfResult?.filename,
+        pdfPath: pdfResult.path,
         coverLetter,
-        reason: `${platform} requires manual application`
+        reason: 'No ATS API and no n8n webhook configured',
       };
     }
+
+    if (result && result.success) {
+      // Store method info: "greenhouse_api" or "n8n" or "n8n_fallback"
+      const methodStr = result.dryRun ? `${method}|DRY_RUN` : method;
+      insertApplication(evaluation.id || 0, methodStr, pdfResult.path);
+      updateJobStatus(job.id, 'applied');
+      console.log(`  ✅ Application recorded: ${job.company} → ${methodStr}`);
+    } else if (result) {
+      console.log(`  ❌ Submission failed: ${result.error}`);
+    }
+
+    return {
+      status: result?.success ? 'submitted' : 'failed',
+      platform,
+      method,
+      pdfPath: pdfResult.path,
+      coverLetter,
+      confirmationId: result?.confirmationId,
+      dryRun: result?.dryRun || false,
+      error: result?.error,
+    };
+
   } catch (error) {
     console.error(`  ❌ Application processing failed: ${error.message}`);
     return { status: 'error', error: error.message };
@@ -96,198 +139,58 @@ export async function processApplication(job, evaluation) {
 }
 
 // ============================================
-// PLATFORM-SPECIFIC SUBMISSION
+// N8N WEBHOOK DISPATCHER (Fallback)
 // ============================================
-
-async function submitApplication(job, evaluation, pdfResult, coverLetter, config, profile) {
-  const platform = (job.platform || '').toLowerCase();
-
-  try {
-    switch (platform) {
-      case 'greenhouse':
-        return await submitGreenhouse(job, pdfResult, coverLetter, config, profile);
-      case 'lever':
-        return await submitLever(job, pdfResult, coverLetter, config, profile);
-      case 'ashby':
-        return await submitAshby(job, pdfResult, coverLetter, config, profile);
-      default:
-        return { success: false, error: `Unsupported platform: ${platform}` };
-    }
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
-}
-
-// ============================================
-// GREENHOUSE APPLY API
-// ============================================
-async function submitGreenhouse(job, pdfResult, coverLetter, config, profile) {
-  // Extract board_id and job_id from external_id: "greenhouse_{board}_{id}"
-  const parts = (job.external_id || '').split('_');
-  if (parts.length < 3) return { success: false, error: 'Cannot parse Greenhouse job ID' };
-
-  const boardId = parts[1];
-  const jobId = parts.slice(2).join('_');
-  // Greenhouse candidate application API (no auth required)
-  const url = `https://boards-api.greenhouse.io/v1/boards/${boardId}/jobs/${jobId}/candidates`;
-
-  // Read PDF file
+async function submitToN8N(job, evaluation, pdfResult, coverLetter, config, profile) {
+  const url = config.n8nWebhookUrl;
+  
+  // Read PDF file as Base64 to send in JSON payload
   const pdfBuffer = readFileSync(pdfResult.path);
-  const boundary = '----FormBoundary' + Date.now().toString(36);
-  const name = profile.identity?.name || 'Abhishek Raj Pagadala';
-  const [firstName, ...lastParts] = name.split(' ');
-  const lastName = lastParts.join(' ') || firstName;
-
-  const body = buildMultipartBody(boundary, {
-    first_name: firstName,
-    last_name: lastName,
-    email: config.applicantEmail,
-    phone: config.applicantPhone,
-    cover_letter: coverLetter,
-  }, {
-    resume: { filename: pdfResult.filename, buffer: pdfBuffer, contentType: 'application/pdf' }
-  });
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-      body: body,
-      signal: AbortSignal.timeout(30000)
-    });
-
-    if (response.ok || response.status === 201) {
-      return { success: true };
-    } else {
-      const text = await response.text();
-      return { success: false, error: `Greenhouse ${response.status}: ${text.slice(0, 200)}` };
+  const pdfBase64 = pdfBuffer.toString('base64');
+  
+  const payload = {
+    job: {
+      id: job.id,
+      title: job.title,
+      company: job.company,
+      platform: job.platform,
+      apply_link: job.apply_link,
+      remote: job.remote
+    },
+    evaluation: {
+      id: evaluation.id,
+      grade: evaluation.letter_grade,
+      archetype: evaluation.archetype,
+      reason: evaluation.reason
+    },
+    applicant: {
+      name: profile.identity?.name || 'Abhishek Raj Pagadala',
+      email: config.applicantEmail,
+      phone: config.applicantPhone
+    },
+    assets: {
+      cover_letter: coverLetter,
+      resume_filename: pdfResult.filename,
+      resume_base64: pdfBase64
     }
-  } catch (error) {
-    return { success: false, error: `Greenhouse: ${error.message}` };
-  }
-}
-
-// ============================================
-// LEVER APPLY API
-// ============================================
-async function submitLever(job, pdfResult, coverLetter, config, profile) {
-  // Extract company and posting from external_id: "lever_{company}_{id}"
-  const parts = (job.external_id || '').split('_');
-  if (parts.length < 3) return { success: false, error: 'Cannot parse Lever job ID' };
-
-  const companyId = parts[1];
-  const postingId = parts.slice(2).join('_');
-  const url = `https://api.lever.co/v0/postings/${companyId}/${postingId}/apply`;
-
-  const pdfBuffer = readFileSync(pdfResult.path);
-  const boundary = '----FormBoundary' + Date.now().toString(36);
-  const name = profile.identity?.name || 'Abhishek Raj Pagadala';
-
-  const body = buildMultipartBody(boundary, {
-    name: name,
-    email: config.applicantEmail,
-    phone: config.applicantPhone,
-    comments: coverLetter,
-    org: 'N/A',
-    urls: JSON.stringify([
-      'https://linkedin.com/in/abhishek-raj-pagadala',
-      'https://github.com/abhishek-raj-pagadala'
-    ])
-  }, {
-    resume: { filename: pdfResult.filename, buffer: pdfBuffer, contentType: 'application/pdf' }
-  });
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-      body: body,
-      signal: AbortSignal.timeout(30000)
-    });
-
-    if (response.ok) {
-      return { success: true };
-    } else {
-      const text = await response.text();
-      return { success: false, error: `Lever ${response.status}: ${text.slice(0, 200)}` };
-    }
-  } catch (error) {
-    return { success: false, error: `Lever: ${error.message}` };
-  }
-}
-
-// ============================================
-// ASHBY APPLY API
-// ============================================
-async function submitAshby(job, pdfResult, coverLetter, config, profile) {
-  const parts = (job.external_id || '').split('_');
-  if (parts.length < 3) return { success: false, error: 'Cannot parse Ashby job ID' };
-
-  const jobId = parts.slice(2).join('_');
-  const url = 'https://api.ashbyhq.com/posting-api/application';
-
-  const pdfBuffer = readFileSync(pdfResult.path);
-  const name = profile.identity?.name || 'Abhishek Raj Pagadala';
-  const [firstName, ...lastParts] = name.split(' ');
-  const lastName = lastParts.join(' ') || firstName;
+  };
 
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jobPostingId: jobId,
-        applicationForm: {
-          firstName,
-          lastName,
-          email: config.applicantEmail,
-          phone: config.applicantPhone,
-          resumeFileContent: pdfBuffer.toString('base64'),
-          resumeFileName: pdfResult.filename,
-          coverLetter: coverLetter
-        }
-      }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(30000)
     });
 
-    if (response.ok) {
-      return { success: true };
+    if (response.ok || response.status === 201) {
+      return { success: true, method: 'n8n' };
     } else {
       const text = await response.text();
-      return { success: false, error: `Ashby ${response.status}: ${text.slice(0, 200)}` };
+      return { success: false, error: `n8n Webhook ${response.status}: ${text.slice(0, 200)}`, method: 'n8n' };
     }
   } catch (error) {
-    return { success: false, error: `Ashby: ${error.message}` };
+    return { success: false, error: `n8n Webhook failed: ${error.message}`, method: 'n8n' };
   }
 }
 
-// ============================================
-// MULTIPART FORM BUILDER
-// ============================================
-function buildMultipartBody(boundary, fields, files) {
-  const parts = [];
-
-  for (const [key, value] of Object.entries(fields)) {
-    parts.push(
-      `--${boundary}\r\n`,
-      `Content-Disposition: form-data; name="${key}"\r\n\r\n`,
-      `${value}\r\n`
-    );
-  }
-
-  for (const [key, file] of Object.entries(files)) {
-    parts.push(
-      `--${boundary}\r\n`,
-      `Content-Disposition: form-data; name="${key}"; filename="${file.filename}"\r\n`,
-      `Content-Type: ${file.contentType}\r\n\r\n`
-    );
-    parts.push(file.buffer);
-    parts.push('\r\n');
-  }
-
-  parts.push(`--${boundary}--\r\n`);
-
-  // Concat buffers and strings
-  const buffers = parts.map(p => typeof p === 'string' ? Buffer.from(p) : p);
-  return Buffer.concat(buffers);
-}

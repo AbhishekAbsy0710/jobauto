@@ -24,45 +24,65 @@ export async function callLLM(systemPrompt, userPrompt, options = {}) {
 // ============================================
 async function callGroq(apiKey, systemPrompt, userPrompt, options = {}) {
   const model = options.model || 'llama-3.1-8b-instant';
-  console.log(`  🚀 Calling Groq (${model})...`);
+  const maxRetries = options.maxRetries ?? 3;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeout || 60000);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt === 0) console.log(`  🚀 Calling Groq (${model})...`);
+    else console.log(`  🔄 Retry ${attempt}/${maxRetries}...`);
 
-  try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: options.temperature ?? 0.1,
-        max_tokens: options.maxTokens || 2000,
-        response_format: options.json ? { type: 'json_object' } : undefined,
-      }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeout || 60000);
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Groq ${response.status}: ${text}`);
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: options.temperature ?? 0.1,
+          max_tokens: options.maxTokens || 2000,
+          response_format: options.json ? { type: 'json_object' } : undefined,
+        }),
+      });
+
+      if (response.status === 429) {
+        clearTimeout(timeout);
+        if (attempt >= maxRetries) {
+          const text = await response.text();
+          throw new Error(`Groq 429 after ${maxRetries} retries: ${text.slice(0, 200)}`);
+        }
+        const text = await response.text();
+        // Parse "try again in X.Xs" from Groq error body
+        const waitMatch = text.match(/try again in (\d+\.?\d*)s/i);
+        const waitSec = waitMatch ? Math.ceil(parseFloat(waitMatch[1])) + 2 : 30 * (attempt + 1);
+        console.log(`  ⏳ Rate limited — waiting ${waitSec}s before retry...`);
+        await new Promise(r => setTimeout(r, waitSec * 1000));
+        continue;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Groq ${response.status}: ${text}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || '';
+      const usage = data.usage;
+      if (usage) {
+        console.log(`  ✅ Groq: ${usage.prompt_tokens}+${usage.completion_tokens} tokens (${usage.total_time ? usage.total_time.toFixed(1) + 's' : 'done'})`);
+      }
+      return content;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    const usage = data.usage;
-    if (usage) {
-      console.log(`  ✅ Groq: ${usage.prompt_tokens}+${usage.completion_tokens} tokens (${usage.total_time ? usage.total_time.toFixed(1) + 's' : 'done'})`);
-    }
-    return content;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

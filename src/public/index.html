@@ -123,12 +123,12 @@
   </main>
 
   <!-- APPLIED JOBS TABLE -->
-  <section class="applied-section" id="applied-section" style="display:none;">
+   <section class="applied-section" id="applied-section" style="display:none;">
     <div class="applied-header">
-      <h2>✅ Applied Jobs</h2>
+      <h2>✅ Applied Jobs — Confirmation Tracker</h2>
       <div style="display:flex;gap:8px;align-items:center;">
         <span class="applied-count" id="applied-count">0 applications</span>
-        <a href="/api/resume" target="_blank" class="btn btn-sm btn-outline" style="text-decoration:none;">📄 View Resume</a>
+        <a href="/api/resume" target="_blank" class="btn btn-sm btn-outline" style="text-decoration:none;">📄 View Base Resume</a>
       </div>
     </div>
     <div class="applied-table-wrap">
@@ -136,6 +136,7 @@
         <thead>
           <tr>
             <th>Date</th>
+            <th>Status</th>
             <th>Company</th>
             <th>Position</th>
             <th>Location</th>
@@ -143,8 +144,7 @@
             <th>Method</th>
             <th>Grade</th>
             <th>Score</th>
-            <th>Resume</th>
-            <th>Resume Changes</th>
+            <th>Tailored Resume</th>
             <th>Job Link</th>
           </tr>
         </thead>
@@ -190,6 +190,6 @@
     </div>
   </div>
 
-  <script src="dashboard.js"></script>
+  <script src="dashboard.js?v=3"></script>
 </body>
 </html>

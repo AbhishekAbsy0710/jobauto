@@ -2,6 +2,7 @@ import { evaluateJob } from './evaluator.js';
 import { applyBusinessRules } from './scorer.js';
 import { getNewJobs, getResume, insertEvaluation, updateJobStatus } from '../database.js';
 import { loadCV, loadConfig } from '../config.js';
+import { processApplication } from './autoApply.js';
 // Uses native fetch (Node 18+)
 
 /**
@@ -73,7 +74,7 @@ async function processJob(job, cvContent, resume, config) {
     if (!finalResult) return null;
 
     // Step 3: Save evaluation
-    insertEvaluation({
+    const evalResult = insertEvaluation({
       job_id: job.id,
       resume_id: resume?.id || 1,
       match_percentage: finalResult.match_percentage,
@@ -105,11 +106,17 @@ async function processJob(job, cvContent, resume, config) {
 
     // Step 5: Auto-apply for Grade A/B (Greenhouse, Lever, Ashby)
     let appResult = null;
+    const evalId = evalResult?.lastInsertRowid || 0;
     if (['A', 'B'].includes(grade) && finalResult.action === 'Apply') {
       try {
-        const { processApplication } = await import('./autoApply.js');
-        appResult = await processApplication(job, { ...finalResult, id: job.id });
-        console.log(`    📬 Auto-apply: ${appResult.status}`);
+        appResult = await processApplication(job, { ...finalResult, id: evalId });
+        if (appResult.status === 'submitted') {
+          console.log(`    ✅ APPLIED: ${job.title} at ${job.company} — dispatched to n8n`);
+        } else if (appResult.status === 'manual') {
+          console.log(`    👋 MANUAL: ${job.title} — materials ready, apply manually`);
+        } else {
+          console.log(`    ❌ FAILED: ${appResult.error || 'unknown error'}`);
+        }
       } catch (e) {
         console.log(`    ⚠️ Auto-apply skipped: ${e.message}`);
       }

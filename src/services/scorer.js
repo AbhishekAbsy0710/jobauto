@@ -111,11 +111,15 @@ export function applyBusinessRules(aiResult, job) {
   const jobText = `${job.title} ${job.description || ''}`.toLowerCase();
   const hasDealBreaker = dealBreakers.some(db => jobText.includes(db.toLowerCase()));
 
-  if (hasDealBreaker) {
+  if (hasDealBreaker || result.is_deal_breaker) {
     result.letter_grade = 'F';
     result.weighted_score = 0;
     result.match_percentage = 0;
-    result.reason = 'Deal breaker detected: ' + dealBreakers.find(db => jobText.includes(db.toLowerCase()));
+    result.action = 'Skip';
+    result.priority = 'Low';
+    result.reason = hasDealBreaker 
+      ? 'Deal breaker detected by keyword: ' + dealBreakers.find(db => jobText.includes(db.toLowerCase()))
+      : 'Deal breaker detected by AI: ' + result.reason;
   }
 
   // ============================================

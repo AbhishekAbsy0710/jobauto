@@ -60,6 +60,7 @@ function buildSystemPrompt(profile) {
   const dealBreakers = (profile.deal_breakers || []).join(', ');
 
   return `You are a Career-Ops Job Evaluation Agent. You evaluate job listings against a candidate's CV using a structured A–F scoring system across 10 weighted dimensions.
+CRITICAL CANDIDATE CONTEXT: The candidate has a strong professional background in DevOps, Cloud Infrastructure, and Platform Engineering. Additionally, the candidate is pursuing an MSc in Data Analytics and has a strong AI/ML and Data Engineering background. You MUST strongly consider BOTH their professional DevOps/Cloud experience AND their academic/practical Data/AI experience. Evaluate Technical Fit and Domain Relevance highly for DevOps Engineer, Cloud Engineer, Site Reliability Engineer, Data Analyst, Data Scientist, Data Engineer, and AI Engineer roles.
 
 SCORING SYSTEM (A=5, B=4, C=3, D=2, F=0):
 
@@ -83,7 +84,8 @@ STAR STORIES: For jobs scoring B or above, suggest 2-3 STAR-format interview tal
 
 OUTPUT: Return ONLY valid JSON:
 {
-  "archetype": "DevOps | Cloud | Data | AI | FullStack | Other",
+  "archetype": "CHOOSE ONE: DevOps, Cloud, Data, AI, FullStack, or Other",
+  "is_deal_breaker": false,
   "dimension_scores": {
     "technical_fit": { "grade": "A-F", "reason": "brief" },
     "seniority_alignment": { "grade": "A-F", "reason": "brief" },

@@ -33,7 +33,7 @@ function readBody(req) { return new Promise(r => { let b=''; req.on('data',c=>b+
 function serveFile(res, fp) {
   try {
     if (!fs.existsSync(fp)) return false;
-    res.writeHead(200, {'Content-Type': MIME[path.extname(fp)]||'application/octet-stream'});
+    res.writeHead(200, {'Content-Type': MIME[path.extname(fp)]||'application/octet-stream', 'Cache-Control': 'no-cache, no-store, must-revalidate'});
     res.end(fs.readFileSync(fp));
     return true;
   } catch { return false; }

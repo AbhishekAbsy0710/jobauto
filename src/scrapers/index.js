@@ -1,6 +1,5 @@
 import { scrapeArbeitnow } from './arbeitnow.js';
 import { scrapeRemoteOK } from './remoteok.js';
-import { scrapeJSearch } from './jsearch.js';
 import { scanPortals } from './portals.js';
 import { scrapeLinkedIn } from './linkedin.js';
 import { scrapeIndeed } from './indeed.js';
@@ -25,10 +24,9 @@ export async function runAllScrapers() {
   const results = { total: 0, new: 0, duplicates: 0, errors: 0 };
 
   // Run all scrapers — batch 1: fast APIs
-  const [arbeitnowJobs, remoteOkJobs, jsearchJobs, portalJobs] = await Promise.allSettled([
+  const [arbeitnowJobs, remoteOkJobs, portalJobs] = await Promise.allSettled([
     scrapeArbeitnow(keywords, locations),
     scrapeRemoteOK(keywords),
-    scrapeJSearch(keywords, locations, config.jsearchApiKey),
     scanPortals(portalKeywords)
   ]);
 
@@ -44,7 +42,6 @@ export async function runAllScrapers() {
   const allJobs = [
     ...(arbeitnowJobs.status === 'fulfilled' ? arbeitnowJobs.value : []),
     ...(remoteOkJobs.status === 'fulfilled' ? remoteOkJobs.value : []),
-    ...(jsearchJobs.status === 'fulfilled' ? jsearchJobs.value : []),
     ...(portalJobs.status === 'fulfilled' ? portalJobs.value : []),
     ...(linkedinJobs.status === 'fulfilled' ? linkedinJobs.value : []),
     ...(indeedJobs.status === 'fulfilled' ? indeedJobs.value : []),

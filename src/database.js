@@ -229,7 +229,7 @@ export function getResume() {
 export function insertApplication(evalId, method, pdfPath) {
   return getDb().prepare(
     'INSERT INTO applications (evaluation_id, method, status, pdf_path) VALUES (?, ?, ?, ?)'
-  ).run(evalId, method, 'applied', pdfPath);
+  ).run(evalId || null, method, 'applied', pdfPath);
 }
 
 if (process.argv.includes('--setup')) {

@@ -138,9 +138,14 @@ function renderJobs(jobs) {
         <div class="score-bar-container">
           <div class="score-bar"><div class="score-bar-fill" style="width:${scorePct}%;background:${barColor}"></div></div>
           <div class="score-text">
-            <span>${scoreDisplay}</span>
+            <span>ATS Score: ${scoreDisplay}</span>
             <span>${job.priority || ''}</span>
           </div>
+          ${job.status === 'applied' && job.applications && job.applications.length > 0 ? `
+          <div style="font-size: 11px; color: var(--text-secondary); margin-top: 6px;">
+            <span style="color:#00d2a0">📄 Resume Changes:</span> ${esc(job.applications[job.applications.length - 1].method && job.applications[job.applications.length - 1].method.includes('|') ? job.applications[job.applications.length - 1].method.split('|')[1].trim() : 'Base Resume (No modifications)')}
+          </div>
+          ` : ''}
         </div>
 
         ${matchingSkills.length ? `
@@ -230,6 +235,18 @@ async function openJobModal(id) {
     const statusMap = { applied: '✅ Applied', auto_queue: '🚀 In Queue', manual_queue: '👋 Review', archived: '🗄️ Archived', new: '🆕 New', evaluated: '📋 Evaluated' };
     const statusLabel = statusMap[job.status] || job.status;
 
+    // Check for failed applications
+    const failedApps = (job.applications || []).filter(a => a.status === 'failed');
+    const latestFail = failedApps.length > 0 ? failedApps.sort((a,b) => new Date(b.applied_at) - new Date(a.applied_at))[0] : null;
+
+    const failedWarningHtml = latestFail ? `
+      <div style="background:rgba(255, 69, 0, 0.1); border-left: 4px solid #ff4500; padding: 12px; border-radius: 4px; margin-bottom: 16px;">
+        <div style="color: #ff4500; font-weight: bold; margin-bottom: 4px;">⚠️ Auto-Apply Failed</div>
+        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"><strong>Reason:</strong> ${esc(latestFail.method || 'Unknown Validation Error')}</div>
+        ${latestFail.pdf_path ? `<a href="${latestFail.pdf_path}" target="_blank" style="color: #ff4500; text-decoration: underline; font-size: 12px;">📸 View Screenshot of Failure</a>` : ''}
+      </div>
+    ` : '';
+
     document.getElementById('modal-content').innerHTML = `
       <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:16px">
         <div class="grade-badge grade-${ev?.letter_grade || '—'}" style="font-size:24px;width:52px;height:52px">
@@ -242,14 +259,23 @@ async function openJobModal(id) {
         </div>
       </div>
 
+      ${failedWarningHtml}
+
       ${ev ? `
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
           ${ev.archetype ? `<span class="tag tag-archetype">${archetypeIcon(ev.archetype)} ${esc(ev.archetype)}</span>` : ''}
           <span class="tag tag-action ${(ev.action||'').toLowerCase()}">${actionIcon(ev.action)} ${esc(ev.action)}</span>
           <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">⚠️ ${ev.risk_level} Risk</span>
           <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">🎯 ${ev.priority}</span>
-          <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">⭐ ${ev.weighted_score}/5.0</span>
+          <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">⭐ ATS Score: ${ev.weighted_score}/5.0</span>
         </div>
+
+        ${job.status === 'applied' && job.applications && job.applications.length > 0 ? `
+        <div style="background:rgba(0, 210, 160, 0.05); border-left: 3px solid #00d2a0; padding: 10px 14px; border-radius: 4px; margin-bottom: 16px;">
+          <div style="font-size: 12px; color: #00d2a0; font-weight: 600; margin-bottom: 4px;">📄 Resume Tailoring Applied</div>
+          <div style="font-size: 13px; color: var(--text-secondary);">${esc(job.applications[job.applications.length - 1].method && job.applications[job.applications.length - 1].method.includes('|') ? job.applications[job.applications.length - 1].method.split('|')[1].trim() : 'Base Resume (No modifications)')}</div>
+        </div>
+        ` : ''}
 
         <div class="modal-section">
           <div class="modal-section-title">📊 Dimension Scores</div>
@@ -490,8 +516,9 @@ function switchTab(tab) {
   document.getElementById('queue-section').style.display = 'none';
 
   if (tab === 'applied') {
-    const applied = allJobs.filter(j => j.status === 'applied');
-    renderJobs(applied);
+    // Hide cards, show only the application records table for clear confirmation
+    document.getElementById('job-grid').style.display = 'none';
+    document.getElementById('filter-bar').style.display = 'none';
     loadApplied();
   } else if (tab === 'queue') {
     const queued = allJobs.filter(j =>
@@ -541,24 +568,33 @@ async function loadApplied() {
       const methodColors = { auto: '#00d2a0', manual: '#4da6ff' };
       const methodBg = methodColors[a.method] || '#666';
 
+      // Status badge
+      const statusBadge = a.app_status === 'applied' || a.app_status === 'submitted'
+        ? '<span style="background:#00d2a0;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">✅ DISPATCHED</span>'
+        : a.app_status === 'failed'
+          ? '<span style="background:#ff5252;color:#fff;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">❌ FAILED</span>'
+          : '<span style="background:#ffd93d;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">⏳ PENDING</span>';
+
+      // Tailored resume link
+      const resumeLink = a.pdf_path
+        ? `<a href="${a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : '/api/resume'}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 View PDF</a>`
+        : '—';
+
       return `
         <tr>
           <td title="${dateStr}">
             <div style="font-weight:500;font-size:12px;">${dateStr}</div>
             <div style="font-size:11px;color:var(--text-muted);">${timeAgo}</div>
           </td>
+          <td>${statusBadge}</td>
           <td><strong>${esc(a.company || 'N/A')}</strong></td>
           <td>${esc(a.title || 'N/A')}</td>
           <td>📍 ${esc(a.location || 'N/A')}</td>
           <td>${platformIcon(a.platform)} ${esc(a.platform || 'N/A')}</td>
-          <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${(a.method || 'manual').toUpperCase()}</span></td>
+          <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${(a.method ? a.method.split('|')[0].trim() : 'manual').toUpperCase()}</span></td>
           <td><span class="grade-badge grade-${a.letter_grade}" style="font-size:12px;width:28px;height:28px;">${a.letter_grade || '?'}</span></td>
           <td style="font-weight:600;">${a.weighted_score ? a.weighted_score.toFixed(1) : '?'}/5</td>
-          <td>
-            <a href="/api/resume" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;" title="View resume used">📄 ${a.pdf_path ? a.pdf_path.split('/').pop() : 'resume.pdf'}</a>
-            <br>
-            <a href="https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${a.app_id}.jpeg" target="_blank" style="color:#ffd93d;text-decoration:none;font-size:11px;font-weight:500;" title="View Submission Proof">📸 View Proof</a>
-          </td>
+          <td>${resumeLink}</td>
           <td>${a.apply_link ? '<a href="' + a.apply_link + '" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View Job</a>' : '—'}</td>
         </tr>
       `;

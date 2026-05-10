@@ -2,6 +2,24 @@ node_modules
 .env
 db/
 *.db
+*.sqlite
 .DS_Store
 /tmp
 .vercel
+
+# n8n local data
+n8n/
+start-n8n.sh
+stop-n8n.sh
+
+# Tailored resume outputs
+resume/tailored_*.html
+resume/tailored_*.pdf
+
+# Test/temp files
+test-*.js
+test.jpg
+check-*.mjs
+apply_log.txt
+error_*.jpeg
+database.sqlite
