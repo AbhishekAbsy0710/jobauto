@@ -580,6 +580,17 @@ async function loadApplied() {
         ? `<a href="${a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : '/api/resume'}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 View PDF</a>`
         : '—';
 
+      // Screenshot proof link
+      const SUPABASE_SCREENSHOTS = 'https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots';
+      let screenshotHtml = '—';
+      if (a.app_status === 'submitted' || a.app_status === 'applied') {
+        const proofUrl = `${SUPABASE_SCREENSHOTS}/${a.app_id}.jpeg`;
+        screenshotHtml = `<a href="${proofUrl}" target="_blank" style="color:#00d2a0;text-decoration:none;font-size:12px;" title="View submission proof">📸 Proof</a>`;
+      } else if (a.app_status === 'failed') {
+        const errorUrl = a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : `${SUPABASE_SCREENSHOTS}/error_${a.eval_id}.jpeg`;
+        screenshotHtml = `<a href="${errorUrl}" target="_blank" style="color:#ff5252;text-decoration:none;font-size:12px;" title="View failure screenshot">📸 Error</a>`;
+      }
+
       return `
         <tr>
           <td title="${dateStr}">
@@ -594,6 +605,7 @@ async function loadApplied() {
           <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${(a.method ? a.method.split('|')[0].trim() : 'manual').toUpperCase()}</span></td>
           <td><span class="grade-badge grade-${a.letter_grade}" style="font-size:12px;width:28px;height:28px;">${a.letter_grade || '?'}</span></td>
           <td style="font-weight:600;">${a.weighted_score ? a.weighted_score.toFixed(1) : '?'}/5</td>
+          <td>${screenshotHtml}</td>
           <td>${resumeLink}</td>
           <td>${a.apply_link ? '<a href="' + a.apply_link + '" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View Job</a>' : '—'}</td>
         </tr>
