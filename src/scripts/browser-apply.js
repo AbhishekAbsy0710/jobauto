@@ -1611,8 +1611,21 @@ async function main() {
                                      postSubmitLower.includes('confirm your email') ||
                                      url.includes('join.com');
 
-      // SUCCESS = explicit signal OR (no errors + URL changed + submit gone)
-      const isSuccess = !hasErrors && (isSuccessUrl || isSuccessText || (urlChanged && submitButtonGone));
+      // --- Platform-specific success: Lever SPA never changes URL ---
+      const isLever = url.includes('jobs.lever.co') || url.includes('lever.co');
+      const isAshby = url.includes('ashbyhq.com') || url.includes('jobs.ashby');
+      const leverSuccess = isLever && !hasErrors && (
+        postSubmitLower.includes('application has been submitted') ||
+        postSubmitLower.includes('your application was submitted') ||
+        postSubmitLower.includes('thanks for applying') ||
+        postSubmitLower.includes("we'll be in touch") ||
+        postSubmitLower.includes('we received your application') ||
+        submitButtonGone
+      );
+      const ashbySuccess = isAshby && !hasErrors && submitButtonGone;
+
+      // SUCCESS = explicit signal OR (no errors + URL changed + submit gone) OR platform-specific
+      const isSuccess = !hasErrors && (isSuccessUrl || isSuccessText || (urlChanged && submitButtonGone) || leverSuccess || ashbySuccess);
       
       if (isSuccess) {
         console.log('  ✅ Application verified successful!');
