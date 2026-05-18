@@ -1423,24 +1423,33 @@ async function main() {
             // Handle Greenhouse Security Code Verification
             const securityInput = await page.$('#security-input-0').catch(() => null);
             if (securityInput && await securityInput.isVisible().catch(() => false)) {
+              const companyName = job.company || 'Company';
               console.log(`  🔒 Security code verification required!`);
-              writeFileSync('WAITING_FOR_SECURITY_CODE.txt', 'Please write the 8-character code to security_code.txt');
-              console.log(`  ⏳ Waiting for user to write the code into security_code.txt...`);
+              writeFileSync('WAITING_FOR_SECURITY_CODE.txt', `Check email for code from ${companyName}, then run: echo "CODE" > security_code.txt`);
+              
+              // macOS notification + terminal bell
+              const notifMsg = `Check your email for verification code from ${companyName}. Run: echo "CODE" > security_code.txt`;
+              import('child_process').then(({ execSync }) => {
+                try { execSync(`osascript -e 'display notification "${notifMsg}" with title "JobAuto: Code Needed" sound name "Glass"'`); } catch(e) {}
+              }).catch(() => {});
+              process.stdout.write('\x07'); // terminal bell
+              console.log(`  ⏳ Waiting up to 10 min — run: echo "CODE" > /Users/abhishek/Documents/jobauto/security_code.txt`);
               
               let code = '';
-              const securityDeadline = Date.now() + 3 * 60 * 1000; // 3-minute timeout
+              const securityDeadline = Date.now() + 10 * 60 * 1000; // 10-minute timeout
               while (true) {
                 if (Date.now() > securityDeadline) {
-                  console.log('  ⏰ Security code timeout (3 min) — marking as security_required and continuing...');
+                  console.log('  ⏰ Security code timeout (10 min) — marking as security_required and continuing...');
                   try { unlinkSync('WAITING_FOR_SECURITY_CODE.txt'); } catch(e){}
-                  // Mark as security_required (not failed) so it can be retried manually
                   try { await supabase.from('jobs').update({ status: 'security_required', notes: 'Email verification required' }).eq('id', job.id); } catch(e) {}
                   try { await supabase.from('applications').insert({ job_id: job.id, eval_id: job.eval_id, status: 'security_required', notes: 'Paused: email verification code needed' }); } catch(e) {}
                   throw new Error('Security code required — retried manually');
                 }
                 if (existsSync('security_code.txt')) {
                   code = readFileSync('security_code.txt', 'utf8').trim();
+                  unlinkSync('security_code.txt'); // consume it immediately
                   if (code.length >= 6) {
+                    console.log(`  ✅ Code received!`);
                     break;
                   }
                 }
