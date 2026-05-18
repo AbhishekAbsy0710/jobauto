@@ -146,7 +146,7 @@ OUTPUT ONLY JSON: {"archetype":"DevOps|Cloud|Data|AI|FullStack|Other","dimension
       }
       const score = totalW > 0 ? Math.round((sum / totalW) * 100) / 100 : 0;
       const letterGrade = GRADE_FROM_SCORE(score);
-      const action = score >= 3.5 ? 'Apply' : score >= 2.5 ? 'Review' : 'Skip';
+      const action = score >= 3.0 ? 'Apply' : score >= 2.0 ? 'Review' : 'Skip';
       const status = action === 'Apply' ? 'auto_queue' : action === 'Review' ? 'manual_queue' : 'archived';
 
       await sb.from('evaluations').insert({
