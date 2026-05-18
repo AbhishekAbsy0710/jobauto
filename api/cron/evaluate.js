@@ -50,6 +50,27 @@ const NON_EU = [
   'singapore', 'japan', 'tokyo', 'china', 'beijing', 'brazil', 'australia', 'sydney',
 ];
 
+// Must match at least one IT keyword to be considered — same list as browser-apply.js
+const IT_KEYWORDS = [
+  'software', 'engineer', 'developer', 'devops', 'cloud', 'infrastructure',
+  'platform', 'backend', 'frontend', 'fullstack', 'full-stack', 'full stack',
+  'sre', 'site reliability', 'data engineer', 'machine learning', 'ml engineer',
+  'ai engineer', 'security engineer', 'it support', 'systems engineer',
+  'network engineer', 'sysadmin', 'systems admin', 'cloud security',
+  'devsecops', 'kubernetes', 'typescript', 'python', 'golang', 'rust',
+  'analytics engineer', 'data scientist', 'database', 'architect',
+  'technical lead', 'tech lead', 'engineering manager', 'vp engineering',
+  'cto', 'product engineer', 'solutions engineer', 'integration engineer',
+];
+
+const BLOCKED_KEYWORDS = [
+  'steuerberater', 'buchhalter', 'steuerfachangestellte', 'reinraum',
+  'servicetechnik', 'logistik', 'projektleiter', 'bauleiter', 'schlüsselfertig',
+  'marketing manager', 'content creator', 'social media', 'growth engine',
+  'performance marketing', 'e-commerce consultant', 'tiktok', 'reels',
+  'sales manager', 'account manager', 'tax', 'rechtsanwalt', 'notar',
+];
+
 export default async function handler(req, res) {
   if (!process.env.GROQ_API_KEY) return res.status(400).json({ error: 'No GROQ_API_KEY' });
 
@@ -71,7 +92,26 @@ OUTPUT ONLY JSON: {"archetype":"DevOps|Cloud|Data|AI|FullStack|Other","dimension
 
   for (const job of unevaluated) {
     try {
-      // EU gate check
+      const titleLower = (job.title || '').toLowerCase();
+
+      // 0. IT keyword gate — archive non-IT roles immediately (saves Groq API tokens)
+      const isBlocked = BLOCKED_KEYWORDS.some(k => titleLower.includes(k));
+      const isIT = IT_KEYWORDS.some(k => titleLower.includes(k));
+      if (isBlocked || !isIT) {
+        await sb.from('evaluations').insert({
+          job_id: job.id,
+          letter_grade: 'F', weighted_score: 0, match_percentage: 0,
+          action: 'Skip', priority: 'Low', risk_level: 'Low',
+          reason: isBlocked ? `Blocked role type: ${job.title}` : `Non-IT role: ${job.title}`,
+          archetype: 'Other',
+        });
+        await sb.from('jobs').update({ status: 'archived' }).eq('id', job.id);
+        evaluated++;
+        console.log(`  ⏭️ Archived (non-IT): ${job.title}`);
+        continue;
+      }
+
+      // 1. EU gate check
       const loc = (job.location || '').toLowerCase();
       const isEU = EU_LOCATIONS.some(k => loc.includes(k));
       const isNonEU = NON_EU.some(k => loc.includes(k));
