@@ -5,7 +5,8 @@
   "outputDirectory": "public",
   "framework": null,
   "rewrites": [
-    { "source": "/api/jobs/:id(\\d+)", "destination": "/api/jobs?id=:id" }
+    { "source": "/api/jobs/:id(\\d+)", "destination": "/api/jobs?id=:id" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
@@ -22,3 +23,4 @@
     { "path": "/api/cron/evaluate", "schedule": "0 7 * * *" }
   ]
 }
+

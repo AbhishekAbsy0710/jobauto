@@ -8,7 +8,7 @@ import { chromium } from 'playwright-extra';
 import stealth from 'puppeteer-extra-plugin-stealth';
 chromium.use(stealth());
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -34,6 +34,7 @@ const PROFILE = {
   email: process.env.APPLICANT_EMAIL || 'pagadalaabhishek60@gmail.com',
   phone: process.env.APPLICANT_PHONE || '+49 176 6723 9250',
   linkedin: 'https://www.linkedin.com/in/abhishek-raj-pagadala',
+  github: 'https://github.com/AbhishekAbsy0710',
   city: 'Munich',
   country: 'Germany',
 };
@@ -111,16 +112,66 @@ async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant'
 }
 
 // ============================================
+// STATIC ANSWER CACHE — skips Groq for common fields
+// ============================================
+const STATIC_ANSWERS = [
+  // Legal work authorisation MUST come first to prevent country pattern matching "in the country where..."
+  { patterns: [/legally auth/i, /authorised.*work/i, /authorized.*work/i], value: 'Yes, no restriction.', type: 'reactselect' },
+  // LinkedIn
+  { patterns: [/linkedin/i], value: 'https://www.linkedin.com/in/abhishek-raj-pagadala', type: 'text' },
+  // GitHub
+  { patterns: [/github/i, /portfolio.*url/i], value: 'https://github.com/AbhishekAbsy0710', type: 'text' },
+  // Website/Portfolio (generic)
+  { patterns: [/website/i, /personal.*url/i, /your.*website/i], value: 'https://github.com/AbhishekAbsy0710', type: 'text' },
+  // Location / city — ONLY match simple "city" labels, NOT "location(s) to work" dropdowns
+  { patterns: [/^city$/i, /current.*city/i, /^location$/i, /where.*are.*you.*based/i, /city.*you.*live/i], value: 'Munich', type: 'text' },
+  // Country — matches all country variants including Passport Country and Country of Residence
+  { patterns: [/^country$/i, /country.*reside/i, /country.*live/i, /country.*located/i, /country.*currently/i, /country.*origin/i, /passport.*country/i, /country.*passport/i, /country.*citizenship/i, /nationality/i], value: 'Germany', type: 'text' },
+  // Salary
+  { patterns: [/salary.*expectation/i, /expected.*salary/i, /desired.*salary/i, /compensation/i], value: '55000', type: 'text' },
+  // Notice period
+  { patterns: [/notice.*period/i, /start.*date/i, /available.*start/i], value: 'Immediate', type: 'text' },
+  // Preferred name
+  { patterns: [/preferred.*name/i, /preferred first/i], value: 'Abhishek', type: 'text' },
+  // Twitter/X profile
+  { patterns: [/twitter/i, /\bx\.com\b/i, /x\s*\/\s*twitter/i, /twitter.*profile/i], value: 'https://x.com/AbhishekAbsy', type: 'text' },
+  // Pronouns
+  { patterns: [/pronoun/i], value: 'He/him', type: 'text' },
+  // Visa sponsorship (plain radio/select)
+  { patterns: [/\brequire.*visa\b/i, /\bneed.*visa.*sponsor/i, /\bvisa.*required\b/i], value: 'No', type: 'radio' },
+  // Work authorization (plain text/radio)
+  { patterns: [/work.*authoriz/i, /work.*permit/i, /right.*to.*work/i], value: 'Yes', type: 'radio' },
+  // "How did you hear" — let AI answer (dropdown with specific options per company)
+];
+
+
+
+function tryStaticAnswer(labelText) {
+  // Strip required markers (* \u25cf etc) and trim before matching
+  const label = (labelText || '').replace(/[*\u25cf\u2022\uFE0F]+/g, '').trim().toLowerCase();
+  for (const rule of STATIC_ANSWERS) {
+    if (rule.patterns.some(p => p.test(label))) {
+      return { value: rule.value, type: rule.type };
+    }
+  }
+  return null;
+}
+
+// ============================================
 // AI FORM FILLER
 // ============================================
 async function fillDynamicFields(page) {
   const fields = await page.evaluate(() => {
+    const results = [];
+
+    // --- Standard inputs ---
     const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), select, textarea'));
-    return inputs.map(el => {
+    for (const el of inputs) {
       const name = (el.name || el.id || '').toLowerCase();
-      // Skip fields we likely already hardcoded
-      if (name.includes('name') || name.includes('email') || name.includes('phone') || el.type === 'file' || el.type === 'submit') return null;
-      if (el.disabled) return null;
+      if (['first_name', 'last_name', 'fname', 'lname', 'name'].includes(name) || name.includes('email') || name.includes('phone') || el.type === 'file' || el.type === 'submit') continue;
+      // Skip IntlTelInput phone country-code picker (iti-*) — it's handled by fillBaseFields
+      if (name.startsWith('iti-') || name.includes('__search-input') || name.includes('search-input')) continue;
+      if (el.disabled) continue;
 
       let labelText = '';
       if (el.labels && el.labels.length > 0) {
@@ -138,61 +189,299 @@ async function fillDynamicFields(page) {
       } else if (el.type === 'radio' || el.type === 'checkbox') {
         let text = el.value;
         const next = el.nextElementSibling;
-        if (next && next.tagName === 'LABEL') text = next.innerText.trim();
-        else if (el.parentElement && el.parentElement.tagName === 'LABEL') {
+        const labelById = el.id ? document.querySelector(`label[for="${el.id}"]`) : null;
+        if (labelById) {
+           text = labelById.innerText.trim();
+        } else if (next && next.tagName === 'LABEL') {
+           text = next.innerText.trim();
+        } else if (el.parentElement && el.parentElement.tagName === 'LABEL') {
            const clone = el.parentElement.cloneNode(true);
-           const inputs = clone.querySelectorAll('input');
-           inputs.forEach(i => i.remove());
+           clone.querySelectorAll('input').forEach(i => i.remove());
            text = clone.innerText.trim() || el.value;
         }
-        options = [{ value: el.value, label: text }];
+        options = [{ value: (el.value === 'on' && text) ? text : el.value, label: text }];
       }
 
-      return {
-        id: el.id || '',
-        name: el.name || el.id || '',
-        type: el.type || el.tagName.toLowerCase(),
+      let elType = el.type || el.tagName.toLowerCase();
+      // Detect React Select hidden input (Greenhouse uses class 'select__input')
+      const cls = (el.className || '').toLowerCase();
+      const parentCls = (el.parentElement?.className || '').toLowerCase();
+      const isReactSelect = cls.includes('select__input') || cls.includes('select-field__input') ||
+                            parentCls.includes('select__value-container') || parentCls.includes('select__input-container');
+      if (isReactSelect) elType = 'reactselect';
+
+      // For React Select: get options from the sibling hidden <select> or from the control's data
+      if (isReactSelect && el.id) {
+        // Greenhouse pairs React Select with a hidden <select> for form submission
+        const pairedSelect = document.querySelector(`select[id="${el.id.replace(/_search_input$|_input$/, '')}"]`) ||
+                             document.querySelector(`select[name="${el.name}"]`);
+        if (pairedSelect) {
+          options = Array.from(pairedSelect.querySelectorAll('option'))
+            .filter(o => o.value && o.innerText.trim() && o.innerText.trim() !== 'Select...')
+            .map(o => ({ value: o.value, label: o.innerText.trim() }));
+        }
+      }
+
+      if (labelText && (el.name || el.id)) {
+        results.push({
+          id: el.id || '',
+          name: el.name || el.id || '',
+          type: elType,
+          label: labelText.substring(0, 150).replace(/\s+/g, ' ').trim(),
+          options: options.slice(0, 20),
+          isCombobox: isReactSelect
+        });
+      }
+    }
+
+    // --- Greenhouse combobox dropdowns (role="combobox") ---
+    // These are used by Anthropic and others for Yes/No and multi-choice questions
+    const comboboxes = Array.from(document.querySelectorAll('[role="combobox"]'));
+    for (const el of comboboxes) {
+      const id = el.id || '';
+      if (!id) continue;
+      // Skip if already captured as a standard select
+      if (results.some(r => r.id === id)) continue;
+
+      // Find the question label — Greenhouse wraps it in a <label> with for= the combobox id
+      let labelText = '';
+      const labelEl = document.querySelector(`label[for="${id}"]`);
+      if (labelEl) {
+        labelText = labelEl.innerText.trim();
+      } else {
+        const parent = el.closest('.field--select, .select-question, div');
+        if (parent) labelText = parent.innerText.split('\\n')[0];
+      }
+      if (!labelText) continue;
+
+      // Get dropdown options from aria-listbox (may be hidden until clicked)
+      // Try the hidden select that Greenhouse pairs with the combobox
+      const hiddenSelect = document.querySelector(`select[id*="${id.replace('combobox_', '')}"], select[name*="${id}"]`);
+      let options = [];
+      if (hiddenSelect) {
+        options = Array.from(hiddenSelect.querySelectorAll('option'))
+          .filter(o => o.value && o.innerText.trim())
+          .map(o => ({ value: o.value, label: o.innerText.trim() }));
+      }
+
+      results.push({
+        id,
+        name: id,
+        type: 'combobox',
         label: labelText.substring(0, 150).replace(/\s+/g, ' ').trim(),
-        options: options.slice(0, 20)
-      };
-    }).filter(f => f && f.label && f.name); // must have name or id to target
+        options,
+        isCombobox: true
+      });
+    }
+
+    return results;
   });
 
-  if (fields.length === 0) return;
+
+  // Filter out GDPR/cookie consent manager fields and phone picker fields
+  const cleanedFields = fields.filter(f => {
+    const n = (f.name || f.id || '').toLowerCase();
+    if (n.startsWith('fc-preference') || n.startsWith('fc-vendor') || n.startsWith('didomi') || n.includes('consent-slider') || n.includes('gvl-vendor')) return false;
+    if (n.includes('search_jobs') || n.includes('search_sort') || n.includes('search_location')) return false;
+    // Skip IntlTelInput phone country-code picker and any iti-* fields
+    if (n.startsWith('iti-') || n.includes('__search-input')) return false;
+    return true;
+  });
+
+  if (cleanedFields.length === 0) return;
 
   // Group radio buttons
   const grouped = {};
-  for (const f of fields) {
+  for (const f of cleanedFields) {
     if (!grouped[f.name]) grouped[f.name] = { name: f.name, label: f.label, type: f.type, options: [] };
     if (f.options.length > 0) grouped[f.name].options.push(...f.options);
   }
 
+
   const questions = Object.values(grouped);
   if (questions.length === 0) return;
 
-  console.log(`  🤖 AI reading ${questions.length} custom fields...`);
+  // --- Static pre-fill: answer common fields without AI ---
+  const staticAnswers = [];
+  const aiQuestions = [];
+  for (const q of questions) {
+    const staticMatch = tryStaticAnswer(q.label);
+    if (staticMatch) {
+      staticAnswers.push({ ...q, staticValue: staticMatch.value, staticType: staticMatch.type });
+    } else {
+      aiQuestions.push(q);
+    }
+  }
+
+  // Fill static answers immediately (no Groq call)
+  // First: blur any focused element (e.g. file upload) to prevent keyboard interference
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); }).catch(() => {});
+  await page.waitForTimeout(200);
+
+  for (const q of staticAnswers) {
+    try {
+      const el = await page.$(`[name="${q.name}"], [id="${q.name}"]`);
+      if (el) {
+        const tag = (await el.evaluate(e => e.tagName)).toLowerCase();
+        const cls = (await el.getAttribute('class') || '').toLowerCase();
+        const isReactSelectInput = cls.includes('select__input') || cls.includes('select-field__input') || q.isCombobox || q.staticType === 'reactselect';
+
+        if (tag === 'select') {
+          await el.selectOption({ label: q.staticValue }).catch(() => el.selectOption(q.staticValue).catch(() => {}));
+        } else if (isReactSelectInput) {
+          // React Select: must use Playwright pointer events, not el.fill()
+          await fillReactSelect(page, el, q.staticValue);
+        } else {
+          // Keyboard simulation — works on ALL React variants (Ashby, Greenhouse, Lever)
+          // Explicitly focus the element before typing to avoid cross-field interference
+          await el.scrollIntoViewIfNeeded().catch(() => {});
+          await page.waitForTimeout(100); // Let page settle before interacting
+          await el.focus().catch(() => {});
+          await el.click({ clickCount: 3 }).catch(() => {});  // select all + set focus
+          await page.waitForTimeout(100);
+          // Verify focus is on this element before typing
+          const isFocusedStatic = await page.evaluate((el) => document.activeElement === el, el).catch(() => false);
+          if (!isFocusedStatic) {
+            await el.click({ force: true }).catch(() => {});
+            await page.waitForTimeout(100);
+          }
+          await page.keyboard.type(q.staticValue, { delay: 10 });
+          // Wait for typeahead/autocomplete dropdown — Ashby can take up to 900ms
+          await page.waitForTimeout(900);
+          
+          // Multi-strategy suggestion picker (CSS-class-independent):
+          // Strategy 1: ARIA role="option" — works on all ATS including future Ashby versions
+          // Strategy 2: Ashby obfuscated class (backup for current version)
+          // Strategy 3: listbox li items
+          // Strategy 4: data-value attribute (some ATSs use this)
+          const SUGGESTION_SELECTORS = [
+            '[role="option"]',
+            '[role="listbox"] li',
+            'li[data-value]',
+            'div[class*="_option_"]:not([class*="_container_"]):not([class*="_yesno_"])',
+            '.autocomplete-suggestion',
+            'ul.suggestions li',
+          ];
+          
+          let clicked = false;
+          for (const sel of SUGGESTION_SELECTORS) {
+            if (clicked) break;
+            try {
+              const allOptions = await page.$$(sel);
+              const visibleOptions = [];
+              for (const opt of allOptions) {
+                if (await opt.isVisible().catch(() => false)) visibleOptions.push(opt);
+              }
+              if (visibleOptions.length === 0) continue;
+              
+              // Prefer an option whose text starts with the typed value (e.g. "Germany")
+              let best = null;
+              const valLower = q.staticValue.toLowerCase();
+              for (const opt of visibleOptions) {
+                const txt = (await opt.textContent().catch(() => '')).trim().toLowerCase();
+                if (txt.startsWith(valLower) || txt === valLower) { best = opt; break; }
+              }
+              // Fallback: just pick the first visible option
+              if (!best && visibleOptions.length > 0) best = visibleOptions[0];
+              
+              if (best) {
+                await best.scrollIntoViewIfNeeded().catch(() => {});
+                await best.click({ force: true }).catch(() => {});
+                await page.waitForTimeout(300);
+                clicked = true;
+              }
+            } catch {}
+          }
+          
+          if (!clicked) {
+            // No dropdown appeared — press Tab to confirm the typed value
+            await page.keyboard.press('Tab');
+            await page.waitForTimeout(150);
+          }
+          // Post-fill verification: if still empty, try el.fill() as fallback
+          const verifyVal = await el.inputValue().catch(() => '');
+          if (!verifyVal.trim()) {
+            await el.fill(q.staticValue).catch(() => {});
+            await page.waitForTimeout(200);
+          }
+        }
+        console.log(`    ↳ [cache] Filled ${q.name} -> ${q.staticValue}`);
+      }
+    } catch {}
+  }
+
+
+  // Post-static re-verify: React re-renders can clear a field when the next field is filled.
+  // Run ALWAYS before AI fills AND again after AI fills.
+  async function reVerifyStaticFields() {
+    await page.waitForTimeout(300);
+    for (const q of staticAnswers) {
+      try {
+        if (q.staticType === 'text' || !q.staticType) {
+          const el = await page.$(`[name="${q.name}"], [id="${q.name}"]`);
+          if (el) {
+            const currentVal = await el.inputValue().catch(() => '');
+            if (!currentVal.trim() && q.staticValue) {
+              await el.scrollIntoViewIfNeeded().catch(() => {});
+              await el.focus().catch(() => {});
+              await el.click({ clickCount: 3 }).catch(() => {});
+              await page.waitForTimeout(80);
+              await page.keyboard.type(q.staticValue, { delay: 10 });
+              await page.waitForTimeout(300);
+              const afterVal = await el.inputValue().catch(() => '');
+              if (!afterVal.trim()) {
+                await el.fill(q.staticValue).catch(() => {});
+              }
+              console.log(`    ↳ [re-fill] Re-filled ${q.name} -> ${q.staticValue}`);
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // Always run pre-AI re-verify pass
+  await reVerifyStaticFields();
+
+  if (aiQuestions.length === 0) {
+    console.log(`  ✅ All ${staticAnswers.length} fields filled from cache (0 AI tokens used)`);
+    return;
+  }
+
+  console.log(`  🤖 AI reading ${aiQuestions.length} custom fields (${staticAnswers.length} pre-filled from cache)...`);
 
 const sysPrompt = `You are an AI filling out a job application. Use the candidate's profile to answer the custom questions.
 PROFILE CONTEXT:
 ${PROFILE_YAML}
 Candidate LinkedIn: ${PROFILE.linkedin}
+Candidate GitHub: ${PROFILE.github}
+Candidate Location: Munich, Germany (EU Blue Card holder, no visa sponsorship needed for EU)
 
 Return JSON strictly in this format:
-{"answers": [{"name": "input_name_attribute", "value": "your_answer", "type": "text|select|radio|checkbox"}]}
+{"answers": [{"name": "input_name_attribute", "value": "your_answer", "type": "text|select|radio|checkbox|reactselect"}]}
 
-CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
-- NEVER leave a required field blank if it is in the list.
-- For 'select', 'radio', or 'checkbox', your 'value' MUST exactly match the 'value' field of the option you choose (NOT the label). Do not make up values.
-- Visa/Sponsorship: Always answer strictly "No" or "I do not require sponsorship" (unless applying inside Germany where you might not need it).
-- Notice Period: Always answer "1 month" or "4 weeks" or "Immediate" depending on the options.
-- Salary Expectations: Put "55000" (or 55,000 depending on the form).
-- Disability/Veteran: Always answer "Decline to answer", "Prefer not to say", or "No".
-- If a question appears to be a Yes/No question (e.g. "Are you open to...", "Do you have..."), STRICTLY answer exactly "Yes" or "No" unless you are 100% sure the dropdown options are different.
-- If the question asks for a link (LinkedIn/GitHub/Portfolio), you MUST use exactly the URL provided above. ALWAYS include https:// otherwise the form will fail validation.
-- DO NOT use actual newlines inside the JSON strings. Use literal "\\n" if you must break lines. Unescaped newlines will break the JSON parser.
-- Escape all double quotes inside your answers using \\"`;
+CRITICAL RULES:
+- NEVER leave a required field blank. NEVER return an empty string "" as value.
+- For any 'text' field with label containing "country" or "residence": ALWAYS return "Germany".
+- For 'reactselect' or 'select' type: your 'value' MUST be EXACTLY ONE of the option labels listed in the field's 'options' array. Copy it exactly, character for character.
+- For multi-select fields (label contains "location(s)", "select all", "languages you speak"): return comma-separated values BUT limit to AT MOST 2-3 relevant choices. For LOCATION multi-select: prefer "Remote" if listed. Add at most 1 more specific city/country option relevant to Germany.
+- For 'radio'/'checkbox': your 'value' must exactly match the option's 'value' field (NOT the label).
+- Visa/Sponsorship: Answer "No" or the closest option meaning no sponsorship needed.
+- Notice Period: "1 month", "4 weeks", or "Immediate" depending on options.
+- Salary: "55000" (or match the format shown in the form).
+- Disability/Veteran/Gender: Always "Decline to answer", "Prefer not to say", or "No".
+- Yes/No questions: answer "Yes" or "No" exactly unless options are different.
+- Certification/consent questions ("I certify...", "I understand...", "I agree..."): answer "Yes".
+- LinkedIn/GitHub links: ALWAYS include https://. LinkedIn → ${PROFILE.linkedin}, GitHub → ${PROFILE.github}.
+- Location questions: pick "Remote" if available. Otherwise pick the single option closest to Germany/Munich.
+- "How did you hear": pick "LinkedIn" or the closest match from the options list.
+- DO NOT invent values not in the options list for select/reactselect fields.
+- DO NOT use actual newlines inside JSON strings. Use literal \\n if needed.
+- Escape double quotes inside answer values with \\"`;
 
-  const userPrompt = `Form Fields:\n` + JSON.stringify(questions, null, 2);
+  const userPrompt = `Form Fields (for reactselect/select types, 'options' lists the EXACT values you may choose from):\n` + JSON.stringify(aiQuestions, null, 2);
+
 
   try {
     const res = await callGroq(sysPrompt, userPrompt);
@@ -210,35 +499,151 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
       return;
     }
 
+    // Build a lookup of question labels for fallback corrections
+    const qLabelMap = {};
+    for (const q of aiQuestions) qLabelMap[q.name] = (q.label || '').toLowerCase();
+
+    // Fix empty AI values using heuristic fallbacks
+    for (const ans of data.answers) {
+      if (!ans.value || !ans.value.trim()) {
+        const label = qLabelMap[ans.name] || '';
+        if (/country|reside|passport|nation/i.test(label)) { ans.value = 'Germany'; }
+        else if (/github|portfolio/i.test(label)) { ans.value = 'https://github.com/AbhishekAbsy0710'; }
+        else if (/linkedin/i.test(label)) { ans.value = 'https://www.linkedin.com/in/abhishek-raj-pagadala'; }
+        else if (/twitter|x\.com/i.test(label)) { ans.value = 'https://x.com/AbhishekAbsy'; }
+      }
+    }
+
     for (const ans of data.answers) {
       try {
         const selector = ans.name.includes('question_') ? `[id="${ans.name}"], [name="${ans.name}"]` : `[name="${ans.name}"], [id="${ans.name}"]`;
         if (ans.type === 'radio' || ans.type === 'checkbox') {
-          // Find the exact radio/checkbox by value
-          const specificSelector = `${selector}[value="${ans.value}"]`;
+          // Find the exact radio/checkbox by value — apply [value=] filter to EACH part of compound selector
+          const valueSuffix = `[value="${ans.value}"]`;
+          const specificSelector = selector.split(',').map(s => s.trim() + valueSuffix).join(', ');
           await page.click(specificSelector, { timeout: 1000, force: true }).catch(async () => {
              // Fallback if value isn't exact
              const els = await page.$$(selector);
-             if (els.length > 0) await els[0].check({ force: true }).catch(()=>{});
+             if (els.length > 0) {
+               let clicked = false;
+               
+               // Handle Yes/No button-style toggles
+               if (els.length === 1 && ['yes', 'no', 'on', 'true', 'false'].includes(ans.value.toLowerCase())) {
+                  let targetText = ans.value.toLowerCase();
+                  if (targetText === 'on' || targetText === 'true') targetText = 'yes';
+                  const parent = await els[0].evaluateHandle(el => el.parentElement).catch(() => null);
+                  if (parent) {
+                    const btns = await parent.$$('button').catch(() => []);
+                    for (const b of btns) {
+                       const t = await b.textContent();
+                       if (t && t.trim().toLowerCase() === targetText) {
+                          await b.click({ force: true });
+                          clicked = true;
+                          break;
+                       }
+                    }
+                  }
+               }
+               
+               if (!clicked) {
+                   // Confirmed Ashby DOM: <span><input type="radio"></span><label>text</label>
+                   // Ashby radio inputs are hidden (opacity:0). React listens to onChange on the input.
+                   // Strategy: find the radio by text, force check it + dispatch change event via React internals.
+                   const normalizeQ = s => (s || '').replace(/[\u2018\u2019\u201A\u201B]/g, "'").replace(/[\u201C\u201D\u201E\u201F]/g, '"').trim().toLowerCase();
+                   const ansPrefix = normalizeQ(ans.value).substring(0, 40);
+                   const groupName = await els[0].getAttribute('name') || '';
+                   
+                   const radioClicked = await page.evaluate(({ groupName, prefix }) => {
+                     const norm = s => (s || '').replace(/[\u2018\u2019\u201A\u201B]/g, "'").replace(/[\u201C\u201D\u201E\u201F]/g, '"').trim().toLowerCase();
+                     const radios = Array.from(document.querySelectorAll(`[name="${groupName}"]`));
+                     for (const radio of radios) {
+                       const labelFor = radio.id ? document.querySelector(`label[for="${radio.id}"]`) : null;
+                       const spanSib = radio.parentElement ? radio.parentElement.nextElementSibling : null;
+                       const label = labelFor || spanSib;
+                       if (!label) continue;
+                       const labelNorm = norm(label.innerText || label.textContent);
+                       if (!labelNorm.startsWith(prefix)) continue;
+                       
+                       const labelText = (label.innerText || label.textContent)?.trim()?.substring(0, 60);
+                       
+                       // Scroll into view then click label (standard DOM click)
+                       label.scrollIntoView({ block: 'center' });
+                       label.click();
+                       
+                       return labelText || 'clicked';
+                     }
+                     return null;
+                   }, { groupName, prefix: ansPrefix }).catch(() => null);
+                   
+                   console.log(`    🔍 Radio eval: groupName=${groupName.slice(-25)} prefix=${ansPrefix} result=${radioClicked?.substring(0,40)}`);
+                   if (radioClicked) {
+                     await page.waitForTimeout(500); // React state settle
+                     clicked = true;
+                     console.log(`    ✅ Radio: "${radioClicked}"`);
+                   }
+                }
+                
+                if (!clicked) await els[0].check({ force: true }).catch(() => {});
+             }
           });
         } else if (ans.type === 'select' || ans.type === 'select-one') {
           await page.selectOption(selector, { value: ans.value }, { force: true }).catch(() => page.selectOption(selector, { label: ans.value }, { force: true }));
+        } else if (ans.type === 'reactselect') {
+          // Greenhouse React Select v2 — type into the hidden input, wait for dropdown, click option
+          const rsInput = await page.$(`#${cssEscape(ans.name)}, [id="${ans.name}"]`).catch(() => null);
+          if (rsInput) {
+            await fillReactSelect(page, rsInput, ans.value);
+          }
+        } else if (ans.type === 'combobox') {
+          // Greenhouse combobox (role=combobox): click to open, click the matching option
+          const comboEl = await page.$(`[role="combobox"]#${cssEscape(ans.name)}, #${cssEscape(ans.name)}[role="combobox"]`).catch(() => null)
+                       || await page.$(`[id="${ans.name}"]`).catch(() => null);
+          if (comboEl) {
+            await comboEl.click().catch(() => {});
+            await page.waitForTimeout(300);
+            const optionClicked = await page.evaluate((value) => {
+              const opts = Array.from(document.querySelectorAll('[role="option"], li[data-value], .select__option'));
+              const target = opts.find(o => {
+                const text = (o.textContent || o.innerText || '').trim().toLowerCase();
+                return text === value.toLowerCase() || text.startsWith(value.toLowerCase().substring(0, 10));
+              });
+              if (target) { target.click(); return true; }
+              return false;
+            }, ans.value).catch(() => false);
+            if (!optionClicked) {
+              const hiddenSel = await page.$(`select[id*="${ans.name.replace('combobox_', '')}"]`).catch(() => null);
+              if (hiddenSel) {
+                await page.selectOption(`select[id*="${ans.name.replace('combobox_', '')}"]`, { label: ans.value }).catch(() =>
+                  page.selectOption(`select[id*="${ans.name.replace('combobox_', '')}"]`, { value: ans.value }).catch(() => {})
+                );
+              }
+            }
+            await page.waitForTimeout(200);
+          }
         } else {
-          // Check if it's actually a select
-          const isSelect = await page.$eval(selector, el => el.tagName === 'SELECT').catch(()=>false);
+          // Plain text / textarea — check for native select or React Select by class
+          const isSelect = await page.$eval(selector, el => el.tagName === 'SELECT').catch(() => false);
           if (isSelect) {
             await page.selectOption(selector, { value: ans.value }, { force: true }).catch(() => page.selectOption(selector, { label: ans.value }, { force: true }));
           } else {
             const el = await page.$(selector);
             if (el) {
-               // Check if it's a React Select combobox
-               const className = await el.getAttribute('class') || '';
-               const role = await el.getAttribute('role') || '';
-               if (className.includes('select__input') || className.includes('react-select') || role === 'combobox') {
-                  await fillReactSelect(page, el, ans.value);
-               } else {
-                  await el.fill(ans.value, { force: true });
-               }
+              const className = await el.getAttribute('class') || '';
+              const role = await el.getAttribute('role') || '';
+              if (className.includes('select__input') || className.includes('react-select') || role === 'combobox') {
+                await fillReactSelect(page, el, ans.value);
+              } else {
+                // Keyboard simulation — works on ALL React variants (Ashby, Greenhouse, Lever)
+                // Explicitly focus the element before typing to avoid cross-field interference
+                await el.scrollIntoViewIfNeeded().catch(() => {});
+                await el.focus().catch(() => {});
+                await el.click({ clickCount: 3 }).catch(() => {});
+                await page.waitForTimeout(50);
+                const isFocused2 = await page.evaluate((el) => document.activeElement === el, el).catch(() => false);
+                if (!isFocused2) await el.focus().catch(() => {});
+                await page.keyboard.type(ans.value, { delay: 10 });
+                await page.waitForTimeout(100);
+              }
             }
           }
         }
@@ -250,6 +655,10 @@ CRITICAL RULES FOR FILLING OUT FORMS WITHOUT MISTAKES:
   } catch (e) {
     console.log(`  ⚠️ AI fill error: ${e.message}`);
   }
+
+  // Post-AI re-verify: AI fills may have cleared previously-set static fields
+  // (e.g. filling a textarea causes React to reconcile and blank out an earlier text input)
+  await reVerifyStaticFields();
 }
 
 // ============================================
@@ -342,51 +751,139 @@ async function fillDemographicFields(page) {
 // ============================================
 // REACT SELECT HELPER: Click to open, read options, click to select
 // ============================================
+// CSS.escape is browser-only — replicate it for Node.js Playwright selectors
+function cssEscape(s) {
+  return String(s).replace(/([^\w-])/g, '\\$1');
+}
+
 async function fillReactSelect(page, inputElement, desiredValue) {
   try {
-    // Click the dropdown control to open it
-    const control = await inputElement.evaluateHandle(el => el.closest('.select__control') || el.closest('[class*="-control"]') || el.parentElement?.parentElement);
-    await control.click();
-    await page.waitForTimeout(400);
-
-    // Read all available options
-    const options = await page.$$eval('[id*="-option-"]', els => els.map(el => ({
-      text: el.innerText.trim(),
-      id: el.id
-    })));
-
-    if (options.length === 0) {
-      // Fallback: type and press enter
-      await inputElement.type(desiredValue, { delay: 50 });
-      await page.waitForTimeout(300);
-      await page.keyboard.press('ArrowDown');
-      await page.waitForTimeout(100);
-      await page.keyboard.press('Enter');
-      return;
+    // Helper: find the .select__control for THIS specific input element
+    async function getControl() {
+      const ch = await inputElement.evaluateHandle(el => {
+        let node = el;
+        for (let i = 0; i < 10; i++) {
+          if (!node) break;
+          const cls = (node.className || '').toString();
+          if (cls.includes('select__control') || cls.includes('react-select__control')) return node;
+          node = node.parentElement;
+        }
+        return null;
+      }).catch(() => null);
+      if (ch && await ch.evaluate(e => !!e).catch(() => false)) return ch.asElement();
+      return null;
     }
 
-    // Find best matching option (case-insensitive partial match)
-    const valueLower = desiredValue.toLowerCase();
-    let bestMatch = options.find(o => o.text.toLowerCase() === valueLower)
-      || options.find(o => o.text.toLowerCase().includes(valueLower))
-      || options.find(o => valueLower.includes(o.text.toLowerCase()))
-      || options[0]; // fallback to first option
-
-    // Click the matching option element
-    if (bestMatch) {
-      await page.click(`#${bestMatch.id}`);
-      await page.waitForTimeout(200);
+    // Helper: read all currently-visible dropdown options
+    async function readOptions() {
+      return page.evaluate(() => {
+        const opts = Array.from(document.querySelectorAll(
+          '[id*="-option-"], [class*="select__option"], [class*="option--is-"]'
+        ));
+        return opts
+          .map(o => ({ text: (o.innerText || o.textContent || '').trim(), id: o.id || '' }))
+          .filter(o => o.text && o.text !== 'No options');
+      });
     }
+
+    // Helper: open dropdown for THIS field
+    async function openDropdown() {
+      const ctrl = await getControl();
+      if (ctrl) {
+        await ctrl.click({ force: true }).catch(() => {});
+      } else {
+        await inputElement.click({ force: true }).catch(() => {});
+      }
+      await page.waitForTimeout(700);
+    }
+
+    // Helper: click best matching option
+    async function clickBestOption(val) {
+      const valLower = val.toLowerCase().trim();
+      const valWords = valLower.split(/[\s,\/\-]+/).filter(w => w.length > 2);
+      const opts = await readOptions();
+      if (opts.length === 0) return false;
+
+      let match = opts.find(o => o.text.toLowerCase() === valLower);
+      if (!match) match = opts.find(o => o.text.toLowerCase().startsWith(valLower));
+      if (!match) match = opts.find(o => valLower.startsWith(o.text.toLowerCase()) && o.text.length > 3);
+      if (!match) match = opts.find(o => {
+        const oLower = o.text.toLowerCase();
+        return valWords.some(kw => oLower.includes(kw));
+      });
+      if (!match && valLower.length >= 4) {
+        match = opts.find(o => o.text.toLowerCase().startsWith(valLower.substring(0, 4)));
+      }
+
+      if (match) {
+        if (match.id) {
+          await page.click('#' + match.id, { force: true }).catch(async () => {
+            await page.evaluate(id => { document.getElementById(id) && document.getElementById(id).click(); }, match.id);
+          });
+        } else {
+          await page.evaluate(text => {
+            const els = Array.from(document.querySelectorAll('[class*="select__option"], [class*="option--is-"]'));
+            const el = els.find(o => (o.innerText || o.textContent || '').trim() === text);
+            if (el) el.click();
+          }, match.text);
+        }
+        await page.waitForTimeout(350);
+        return true;
+      }
+      return false;
+    }
+
+    const valuesToSelect = desiredValue.split(',').map(v => v.trim()).filter(v => v);
+
+    for (let i = 0; i < valuesToSelect.length; i++) {
+      const val = valuesToSelect[i];
+
+      // 1. Open dropdown
+      await openDropdown();
+
+      // 2. Fallback: Space key if no options appeared
+      let initialOpts = await readOptions();
+      if (initialOpts.length === 0) {
+        await inputElement.focus().catch(() => {});
+        await page.keyboard.press('Space');
+        await page.waitForTimeout(500);
+      }
+
+      // 3. Clear + type to filter
+      await inputElement.fill('').catch(() => {});
+      const typeStr = val.substring(0, Math.min(5, val.length));
+      await inputElement.type(typeStr, { delay: 80 }).catch(() => {});
+      await page.waitForTimeout(800);
+
+      // 4. Click best match
+      const clicked = await clickBestOption(val);
+
+      // 5. If nothing matched, open fresh and pick first option
+      if (!clicked) {
+        await page.keyboard.press('Escape').catch(() => {});
+        await page.waitForTimeout(200);
+        await openDropdown();
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(150);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+      }
+
+      // 6. Close between iterations (multi-select)
+      if (i < valuesToSelect.length - 1) {
+        await page.keyboard.press('Escape').catch(() => {});
+        await page.waitForTimeout(300);
+      }
+    }
+
+    // Final close
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(200);
   } catch (e) {
-    // Ultimate fallback: type and press enter
-    try {
-      await inputElement.focus();
-      await inputElement.type(desiredValue, { delay: 50 });
-      await page.waitForTimeout(300);
-      await page.keyboard.press('Enter');
-    } catch {}
+    console.log('    \u21b3 (React Select error: ' + e.message.split('\n')[0] + ')');
   }
 }
+
 
 // ============================================
 // BASE FORM FILLER
@@ -403,14 +900,16 @@ async function fillBaseFields(page, resumePath) {
     try { await btn.click({ timeout: 2000 }); await page.waitForTimeout(2000); break; } catch {}
   }
 
-  // Name
-  await fillField(page, '#first_name, input[name="first_name"], input[name*="first"]', PROFILE.firstName);
+  // Name — covers Greenhouse (first_name/last_name), Lever (name), Ashby (_systemfield_name)
+  await fillField(page, '#first_name, input[name="first_name"], input[name*="first"]:not([name*="preferred"])', PROFILE.firstName);
   await fillField(page, '#last_name, input[name="last_name"], input[name*="last"]', PROFILE.lastName);
+  await fillField(page, '#preferred_name, input[name="preferred_name"], input[name*="preferred"]', PROFILE.firstName);
   await fillField(page, 'input[name="name"], input[name="cards[0][field0]"]', PROFILE.fullName); // Lever
+  await fillField(page, 'input[name="_systemfield_name"]', PROFILE.fullName); // Ashby
 
   // Email & Phone
-  await fillField(page, '#email, input[name="email"], input[type="email"]', PROFILE.email);
-  await fillField(page, '#phone, input[name="phone"], input[type="tel"]', PROFILE.phone);
+  await fillField(page, '#email, input[name="email"], input[type="email"], input[name="_systemfield_email"]', PROFILE.email);
+  await fillField(page, '#phone, input[name="phone"], input[type="tel"], input[name="_systemfield_phone"]', PROFILE.phone);
 
   // Socials / Location
   await fillField(page, 'input[name*="linkedin"], input[id*="linkedin"]', PROFILE.linkedin);
@@ -423,10 +922,9 @@ async function fillBaseFields(page, resumePath) {
       for (const input of fileInputs) {
         const accept = await input.getAttribute('accept') || '';
         const name = await input.getAttribute('name') || '';
-        if (accept.includes('pdf') || name.includes('resume') || name.includes('cv') || fileInputs.length === 1) {
-          await input.setInputFiles(resumePath);
-          console.log('  📎 Resume uploaded');
-          break;
+        if (accept.includes('pdf') || name.includes('resume') || name.includes('cv') || name.includes('_systemfield_resume') || fileInputs.length === 1) {
+          await input.setInputFiles(resumePath).catch(() => {});
+          console.log('  📎 Resume uploaded to an input');
         }
       }
     } catch (e) {}
@@ -437,8 +935,20 @@ async function fillField(page, selector, value) {
   try {
     const field = await page.$(selector);
     if (field && await field.isVisible()) {
+      await field.scrollIntoViewIfNeeded().catch(() => {});
       await field.click();
-      await field.fill(value);
+      // Use React-compatible fill: dispatches native input + change events
+      // This is needed for Ashby, Lever, and any React-controlled input where .fill() silently fails
+      await field.fill('');
+      // Keyboard simulation — works on ALL React variants (Ashby, Greenhouse, Lever)
+      await field.scrollIntoViewIfNeeded().catch(() => {});
+      await field.focus().catch(() => {});
+      await field.click({ clickCount: 3 }).catch(() => {});
+      await page.waitForTimeout(50);
+      const isFocused3 = await page.evaluate((el) => document.activeElement === el, field).catch(() => false);
+      if (!isFocused3) await field.focus().catch(() => {});
+      await page.keyboard.type(value, { delay: 10 });
+      await page.waitForTimeout(80);
       return true;
     }
   } catch {}
@@ -456,12 +966,19 @@ async function generateTailoredResume(job, context, supabase, fallbackPath) {
   const baseJsonStr = readFileSync(baseJsonPath, 'utf8');
 
   const sysPrompt = `You are an expert technical recruiter. Your task is to tailor the candidate's resume for the target Job Description to maximize ATS match.
-To prevent hallucinations or loss of data, you are ONLY allowed to output three things in JSON format:
-1. "title": A new professional title that closely matches the target job.
-2. "summary": A tailored professional summary (approx. 3-4 sentences) that highlights the candidate's existing experience in a way that matches the job description. Do NOT invent new experience.
-3. "new_skills": An array of strings containing 3 to 8 relevant keywords/skills from the Job Description that the candidate realistically possesses based on their base resume.
 
-Return ONLY valid JSON matching this exact structure:
+CRITICAL RULES — NEVER violate these:
+- You MUST NOT change any job title, company name, date, or bullet point in the candidate's work experience section.
+- You MUST NOT invent, add, or remove any work experience entries.
+- You MUST NOT change the candidate's education, certifications, or contact information.
+- The ONLY things you are allowed to change are: the professional headline (title), the summary paragraph, and the skills list.
+
+You are ONLY allowed to output three things in JSON format:
+1. "title": A new professional headline that closely matches the target job title (e.g. "Senior Data Engineer" or "Cloud Platform Engineer"). This goes at the top of the resume as the candidate's current professional title — it does NOT modify any job entry.
+2. "summary": A tailored professional summary (3-4 sentences) that highlights the candidate's existing experience relevant to this job. Do NOT invent new experience.
+3. "new_skills": An array of 3-8 relevant technical skills/keywords from the Job Description that the candidate realistically possesses based on their base resume.
+
+Return ONLY valid JSON:
 {
   "title": "string",
   "summary": "string",
@@ -480,14 +997,32 @@ Return ONLY valid JSON matching this exact structure:
     
     const patchJson = JSON.parse(match[0]);
     
-    // Apply patches safely
-    if (patchJson.title) tailoredJson.personal.title = patchJson.title;
-    if (patchJson.summary) tailoredJson.summary = patchJson.summary;
-    if (patchJson.new_skills && Array.isArray(patchJson.new_skills) && patchJson.new_skills.length > 0) {
-        // Append new skills to the first category, or create an 'Added Skills' category
-        tailoredJson.skills['Tailored Skills'] = patchJson.new_skills.join(', ');
+    if (Object.keys(patchJson).length === 0) {
+      throw new Error("AI returned empty JSON (likely rate limited)");
     }
     
+    let changesMadeArr = [];
+    
+    // Apply patches safely
+    if (patchJson.title && patchJson.title !== tailoredJson.personal.title) {
+        tailoredJson.personal.title = patchJson.title;
+        changesMadeArr.push(`Updated title to '${patchJson.title}'`);
+    }
+    if (patchJson.summary && patchJson.summary !== tailoredJson.summary) {
+        tailoredJson.summary = patchJson.summary;
+        changesMadeArr.push('Tailored summary');
+    }
+    if (patchJson.new_skills && Array.isArray(patchJson.new_skills) && patchJson.new_skills.length > 0) {
+        tailoredJson.skills['Tailored Skills'] = patchJson.new_skills.join(', ');
+        changesMadeArr.push(`Added ${patchJson.new_skills.length} targeted skills`);
+    }
+    
+    tailoredJson.changes_made = changesMadeArr.length > 0 ? changesMadeArr.join(', ') : 'Base Resume (No modifications)';
+    
+    if (changesMadeArr.length === 0) {
+      throw new Error("No meaningful changes were made by AI");
+    }
+
     // Evaluate the new tailored resume
     console.log(`  📊 Evaluating tailored resume...`);
     const evalSysPromptJson = `You are a strict ATS (Applicant Tracking System). Compare the Candidate's Resume against the Job Description. Return a JSON object with a single key "score" containing an integer from 0 to 100 representing the match percentage.`;
@@ -495,14 +1030,17 @@ Return ONLY valid JSON matching this exact structure:
     const scoreRes = await callGroq(evalSysPromptJson, evalUserPrompt, 'llama-3.1-8b-instant');
     let score = 0;
     try {
-        score = JSON.parse(scoreRes.match(/\{[\s\S]*\}/)[0]).score || 0;
+        const scoreMatch = scoreRes.match(/\{[\s\S]*\}/);
+        if (scoreMatch) {
+            score = JSON.parse(scoreMatch[0]).score || 0;
+        }
     } catch(err) {
         score = parseInt(scoreRes.replace(/\D/g, '')) || 0;
     }
     console.log(`  📈 ATS Score: ${score}%`);
     
   } catch(e) {
-    console.log('  ⚠️ Failed to generate tailored resume sections, using base.', e.message);
+    console.log(`  ⚠️ Failed to generate tailored resume sections (${e.message}), using base.`);
     return { pdfPath: fallbackPath, publicUrl: null, changes: 'Base Resume (No modifications)' };
   }
 
@@ -571,10 +1109,18 @@ Return ONLY valid JSON matching this exact structure:
 async function main() {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
 
-  const { data: rawJobs, error } = await supabase
+  let query = supabase
     .from('jobs')
     .select('*, evaluations!inner(id, letter_grade, weighted_score)')
     .eq('status', 'auto_queue');
+
+  // TEST MODE: restrict to a single job ID for safe testing
+  if (process.env.TEST_JOB_ID) {
+    console.log(`🧪 TEST MODE — running only job ID ${process.env.TEST_JOB_ID}`);
+    query = query.eq('id', process.env.TEST_JOB_ID);
+  }
+
+  const { data: rawJobs, error } = await query;
 
   if (error || !rawJobs || rawJobs.length === 0) {
     console.log('📭 No jobs in the apply queue');
@@ -595,7 +1141,8 @@ async function main() {
 
   console.log(`\n🚀 Auto-applying to ${jobs.length} jobs via Playwright (AI Enabled)...\n`);
 
-  const browser = await chromium.launch({ headless: true, slowMo: 150, timeout: 30000 });
+  const isHeaded = process.env.HEADED === 'true';
+  const browser = await chromium.launch({ headless: !isHeaded, slowMo: isHeaded ? 300 : 150, timeout: 30000 });
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     viewport: { width: 1366, height: 768 },
@@ -612,21 +1159,87 @@ async function main() {
   const appliedJobs = [];
   const failedJobs = [];
 
-  // Target roles — skip jobs that are clearly irrelevant
-  const TARGET_KEYWORDS = ['data', 'devops', 'cloud', 'full stack', 'fullstack', 'backend', 'frontend', 'ai ', 'machine learning', 'ml ', 'analytics', 'infrastructure', 'platform', 'sre', 'site reliability', 'software engineer', 'developer'];
-  const SKIP_KEYWORDS = ['c++ developer', 'embedded', 'firmware', 'hardware', 'mechanical', 'civil', 'chemical', 'electrical engineer', 'nurse', 'doctor', 'sales rep', 'account executive'];
+  // Target roles — IT/engineering keywords that must appear in the title
+  const TARGET_KEYWORDS = [
+    'data engineer', 'data analyst', 'data scientist', 'analytics engineer',
+    'devops', 'cloud engineer', 'cloud architect', 'platform engineer',
+    'backend', 'fullstack', 'full stack', 'full-stack',
+    'software engineer', 'software developer',
+    'ai engineer', 'ml engineer', 'machine learning', 'mlops',
+    'infrastructure engineer', 'site reliability', 'sre',
+    'frontend engineer', 'frontend developer',
+    'tech lead', 'lead engineer', 'staff engineer', 'principal engineer',
+    'automation engineer', 'automation developer',
+    'solutions architect', 'cloud consultant', 'devops consultant',
+    'data platform', 'data infrastructure',
+    'ki-agent', 'ki engineer',
+    'security engineer', 'security analyst', 'cybersecurity', 'devsecops', 'appsec', 'cloud security',
+    'it support', 'it specialist', 'systems engineer', 'systems administrator', 'sysadmin',
+    'network engineer', 'network administrator', 'network architect',
+  ];
+  // Non-IT roles to hard-skip regardless of other signals
+  const SKIP_KEYWORDS = [
+    // Trades / manual / non-tech (German)
+    'kosmetik', 'werkstudent', 'praktikum', 'praktikant', 'pflege', 'fahrer',
+    'tischler', 'maler', 'fotovoltaik', 'photovoltaik', 'elektriker',
+    'reinigung', 'handwerk', 'schweißer', 'sanitär', 'lagerlogistik',
+    'sozialarbeiter', 'krankenpflege', 'bürokaufmann', 'kaufmann',
+    'steuerberater', 'buchhalter',
+    // Marketing / social media
+    'influencer', 'marketing manager', 'social media manager',
+    'community manager', 'brand manager', 'seo manager',
+    'performance marketing', 'campaign manager', 'content creator',
+    'copywriter', 'redakteur', 'tiktok', 'reels', 'journalist',
+    // Sales / BD
+    'sales manager', 'sales representative', 'sales engineer',
+    'account executive', 'account manager', 'business development',
+    'customer success manager', 'partnership manager', 'revenue operations',
+    // Non-IC management
+    'engineering manager', 'vp of engineering', 'head of engineering',
+    'director of engineering', 'chief technology officer',
+    'tax lead', 'tax manager', 'tax consultant', 'finance manager',
+    'hr manager', 'recruiter', 'talent acquisition', 'people operations',
+    // Technical but out-of-scope
+    'c++ developer', 'embedded', 'firmware', 'hardware engineer',
+    'mechanical engineer', 'civil engineer', 'chemical engineer',
+    'nurse', 'doctor', 'physician',
+    'personalberater',
+  ];
+
+  // Per-company application cap — Ashby/Greenhouse block after 2-3 apps from same person
+  const MAX_PER_COMPANY = 2;
+  const companiesApplied = {}; // track how many we've applied to per company this run
 
   for (const job of jobs) {
     const page = await context.newPage();
     console.log(`\n━━━ ${job.title} @ ${job.company} ━━━`);
 
     try {
-      // Pre-filter: skip irrelevant roles to save API tokens
+      // Per-company rate limit gate — skip if already applied to this company MAX_PER_COMPANY times
+      const companyKey = (job.company || '').toLowerCase().trim();
+      if (companiesApplied[companyKey] >= MAX_PER_COMPANY) {
+        console.log(`  ⏭️ Skipping — already applied to ${job.company} ${companiesApplied[companyKey]}x this run (limit: ${MAX_PER_COMPANY})`);
+        results.skipped++;
+        await page.close().catch(() => {});
+        continue;
+      }
+
+      // Pre-filter: hard-skip non-IT roles to save API tokens
       const titleLower = (job.title || '').toLowerCase();
-      const isRelevant = TARGET_KEYWORDS.some(kw => titleLower.includes(kw));
       const isExcluded = SKIP_KEYWORDS.some(kw => titleLower.includes(kw));
-      if (isExcluded || (!isRelevant && !job.archetype)) {
-        console.log(`  ⏭️ Skipping: role "${job.title}" doesn't match target roles`);
+      if (isExcluded) {
+        console.log(`  ⏭️ Skipping (blocked keyword): "${job.title}"`);
+        results.skipped++;
+        await page.close().catch(() => {});
+        await supabase.from('jobs').update({ status: 'archived' }).eq('id', job.id);
+        continue;
+      }
+
+      const IT_ARCHETYPES = ['devops', 'cloud', 'data', 'ai', 'fullstack', 'DevOps', 'Cloud', 'Data', 'AI', 'FullStack'];
+      const isRelevant = TARGET_KEYWORDS.some(kw => titleLower.includes(kw))
+                      || IT_ARCHETYPES.includes(job.archetype);
+      if (!isRelevant) {
+        console.log(`  ⏭️ Skipping (no IT keyword match): "${job.title}"`);
         results.skipped++;
         await page.close().catch(() => {});
         await supabase.from('jobs').update({ status: 'archived' }).eq('id', job.id);
@@ -659,16 +1272,47 @@ async function main() {
         }
       }
 
+      // === IFRAME REDIRECT: Some career pages (like Datadog) embed the ATS form in an iframe ===
+      // Wait for dynamic injection
+      try {
+        await page.waitForSelector('iframe[src*="greenhouse.io"], iframe[src*="lever.co"], iframe[src*="ashbyhq.com"], iframe[src*="workday.com"]', { timeout: 5000 });
+      } catch (e) {}
+
+      const iframeUrl = await page.evaluate(() => {
+        const iframe = document.querySelector(
+          'iframe[src*="greenhouse.io"], iframe[src*="lever.co"], iframe[src*="ashbyhq.com"], iframe[src*="workday.com"]'
+        );
+        return iframe ? iframe.src : null;
+      });
+      const currentDomain = page.url();
+      const alreadyOnATS = /greenhouse\.io|lever\.co|ashbyhq\.com|workday\.com/i.test(currentDomain);
+      if (iframeUrl && !alreadyOnATS && !iframeUrl.includes('googleapis.com') && !iframeUrl.includes('gstatic.com')) {
+        console.log(`  🔀 ATS embedded in iframe detected. Navigating directly to iframe: ${iframeUrl.substring(0, 80)}...`);
+        await page.goto(iframeUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForTimeout(2000 + Math.random() * 1000);
+      }
+
+
       // Pre-flight: detect dead/404 pages before wasting API tokens
       const pageText = await page.textContent('body').catch(() => '');
       const pageLower = pageText.toLowerCase();
+      const preflightUrl = page.url().toLowerCase();
+
 
       // Early captcha/bot detection — skip immediately
       if (pageLower.includes('please solve this captcha') || pageLower.includes('verify you are human') || pageLower.includes('checking if the site connection is secure') || pageLower.includes('just a moment') || pageLower.includes('enable javascript and cookies')) {
         throw new Error('Captcha/bot detection — marking for manual apply');
       }
 
-      if (pageLower.includes('page not found') || pageLower.includes('404') || pageLower.includes('this position has been filled') || pageLower.includes('this job is no longer available') || pageLower.includes('no longer accepting applications')) {
+      // Detect login walls (Workday, Spotify/Teamtailor, LinkedIn Easy Apply gating)
+      if (preflightUrl.includes('myworkdayjobs.com') || preflightUrl.includes('workday.com/en-us/signin')) {
+        throw new Error('Workday login wall — requires manual apply');
+      }
+      if (preflightUrl.includes('teamtailor.com') && (pageLower.includes('sign in') || pageLower.includes('log in') || pageLower.includes('create account'))) {
+        throw new Error('Teamtailor login wall — requires manual apply');
+      }
+
+      if (pageLower.includes('page not found') || pageLower.includes(' 404 ') || pageLower.startsWith('404') || pageLower.includes('the job you requested was not found') || pageLower.includes('this position has been filled') || pageLower.includes('this job is no longer available') || pageLower.includes('no longer accepting applications') || pageLower.includes('position is no longer available')) {
         throw new Error('Dead page: job listing removed or expired');
       }
 
@@ -677,18 +1321,11 @@ async function main() {
 
       // 1. Generate tailored resume (if possible)
       const tailoredInfo = await generateTailoredResume(job, context, supabase, RESUME_PATH);
+      job.tailoredPublicUrl = tailoredInfo.publicUrl; // Store for dashboard
       const activeResumePath = tailoredInfo.pdfPath;
       const tailoredChanges = tailoredInfo.changes;
 
-      // 2. Fill base generic fields
-      await fillBaseFields(page, activeResumePath);
-
-      // 2.5 Hard-code demographic/survey fields (gender, race, veteran, disability)
-      await fillDemographicFields(page);
-
-      // 3. Fill custom dynamic fields via Groq AI
-      await fillDynamicFields(page);
-
+      // The multi-step loop below handles all filling (step 1 onwards)
       // 4. Multi-step form navigation loop (handles Greenhouse, Ashby, Lever, Workday)
       // Each iteration: fill visible fields → try Submit → else try Next → repeat
       const MAX_STEPS = 10;
@@ -696,20 +1333,38 @@ async function main() {
       let stepCount = 0;
 
       const SUBMIT_SELECTORS = [
+        // Generic
         'button[type="submit"]',
         'input[type="submit"]',
+        // Ashby
         'button:has-text("Submit Application")',
         'button:has-text("Submit application")',
-        'button:has-text("Submit")',
-        'button:has-text("Apply")',
-        'button:has-text("Send Application")',
-        'button:has-text("Bewerbung absenden")',
-        'button.submit-application',
-        '#submit_app', '#submit-app',
-        'button[data-testid="submit-application"]',
         'button[data-testid="ashby-btn-primary"]',
         '.ashby-application-form-submit-button',
+        // Greenhouse
+        '#submit_app', '#submit-app',
+        'button#submit_app',
+        'input#submit_app',
+        // Lever
         'button.postings-btn.template-btn-submit',
+        'a.postings-btn',
+        // Generic text
+        'button:has-text("Submit")',
+        'button:has-text("Apply")',
+        'button:has-text("Apply Now")',
+        'button:has-text("Send Application")',
+        'button:has-text("Send your application")',
+        'button:has-text("Bewerbung absenden")',
+        'button:has-text("Jetzt bewerben")',
+        // Workday
+        'button[data-automation-id="bottom-navigation-next-button"]',
+        'button[data-automation-id="bottom-navigation-review-btn"]',
+        // Teamtailor (Spotify)
+        'button[data-testid="submit-button"]',
+        'button.button--primary:has-text("Send application")',
+        'button.button--primary:has-text("Apply")',
+        // Misc
+        'button.submit-application',
         '[data-action="submit"]',
         'button[aria-label*="submit" i]',
         'button[aria-label*="apply" i]',
@@ -723,6 +1378,8 @@ async function main() {
         'button:has-text("Review")',
         'button[data-testid="next-button"]',
         'button[data-testid="continue"]',
+        // Workday
+        'button[data-automation-id="bottom-navigation-next-button"]',
         'a:has-text("Next")',
         'a:has-text("Continue")',
         '.next-btn', '#next-button',
@@ -749,10 +1406,65 @@ async function main() {
         for (const sel of SUBMIT_SELECTORS) {
           const btn = await page.$(sel).catch(() => null);
           if (btn && await btn.isVisible().catch(() => false)) {
+            await page.screenshot({ path: 'debug_pre_submit.png', fullPage: true });
             console.log(`  🔘 Step ${stepCount}: Clicking SUBMIT`);
-            await btn.click();
+            // Scroll into view then click with generous timeout
+            await btn.scrollIntoViewIfNeeded().catch(() => {});
+            await btn.click({ timeout: 10000 }).catch(async () => {
+              // Fallback: force click (bypasses overlays)
+              await btn.click({ force: true, timeout: 10000 }).catch(() => {});
+            });
             submitted = true;
             clickedSomething = true;
+            
+            // Wait for UI to update (security fields or redirects)
+            await page.waitForTimeout(2000);
+            
+            // Handle Greenhouse Security Code Verification
+            const securityInput = await page.$('#security-input-0').catch(() => null);
+            if (securityInput && await securityInput.isVisible().catch(() => false)) {
+              console.log(`  🔒 Security code verification required!`);
+              writeFileSync('WAITING_FOR_SECURITY_CODE.txt', 'Please write the 8-character code to security_code.txt');
+              console.log(`  ⏳ Waiting for user to write the code into security_code.txt...`);
+              
+              let code = '';
+              const securityDeadline = Date.now() + 3 * 60 * 1000; // 3-minute timeout
+              while (true) {
+                if (Date.now() > securityDeadline) {
+                  console.log('  ⏰ Security code timeout (3 min) — marking as security_required and continuing...');
+                  try { unlinkSync('WAITING_FOR_SECURITY_CODE.txt'); } catch(e){}
+                  // Mark as security_required (not failed) so it can be retried manually
+                  try { await supabase.from('jobs').update({ status: 'security_required', notes: 'Email verification required' }).eq('id', job.id); } catch(e) {}
+                  try { await supabase.from('applications').insert({ job_id: job.id, eval_id: job.eval_id, status: 'security_required', notes: 'Paused: email verification code needed' }); } catch(e) {}
+                  throw new Error('Security code required — retried manually');
+                }
+                if (existsSync('security_code.txt')) {
+                  code = readFileSync('security_code.txt', 'utf8').trim();
+                  if (code.length >= 6) {
+                    break;
+                  }
+                }
+                await page.waitForTimeout(2000);
+              }
+              
+              console.log(`  ✅ Received security code! Filling it in...`);
+              // Greenhouse splits it into 8 inputs
+              for (let i = 0; i < code.length && i < 8; i++) {
+                const input = await page.$(`#security-input-${i}`).catch(() => null);
+                if (input) {
+                  await input.type(code[i], { delay: 50 });
+                }
+              }
+              
+              // Cleanup
+              try { unlinkSync('WAITING_FOR_SECURITY_CODE.txt'); } catch(e){}
+              try { unlinkSync('security_code.txt'); } catch(e){}
+              
+              await page.waitForTimeout(1000);
+              console.log(`  🔘 Clicking SUBMIT again after security code`);
+              await btn.click();
+              await page.waitForTimeout(1500);
+            }
             break;
           }
         }
@@ -802,9 +1514,22 @@ async function main() {
       await page.waitForTimeout(5000);
       const url = page.url().toLowerCase();
       const urlChanged = url !== preSubmitUrl.toLowerCase();
+      console.log(`  🔗 Pre-submit URL: ${preSubmitUrl.substring(0,80)}`);
+      console.log(`  🔗 Post-submit URL: ${url.substring(0,80)}`);
+      
       const postSubmitPageText = await page.textContent('body').catch(() => '');
       const postSubmitLower = postSubmitPageText.toLowerCase();
       
+      // Save debug HTML and screenshot unconditionally
+      const html = await page.content();
+      writeFileSync('debug_post_submit.html', html);
+      await page.screenshot({ path: 'debug_post_submit.png', fullPage: true });
+
+      // --- Ashby / ATS application rate limit detection ---
+      if (postSubmitLower.includes('application limits') || postSubmitLower.includes('limit on how often someone can apply') || postSubmitLower.includes('you can submit up to')) {
+        throw new Error(`Application blocked — company has per-person apply limits (applied too many times to ${job.company})`);
+      }
+
       // --- Bot/Captcha detection ---
       if (postSubmitLower.includes('please solve this captcha') || postSubmitLower.includes('verify you are human') || postSubmitLower.includes('checking if the site connection is secure') || postSubmitLower.includes('just a moment')) {
          job.hasCaptcha = true;
@@ -859,10 +1584,17 @@ async function main() {
         }
       }
 
-      // Also check for error-like text in page body
-      if (!hasErrors && (postSubmitLower.includes('missing entry for required field') || postSubmitLower.includes('please fill in') || postSubmitLower.includes('this field is required') || postSubmitLower.includes('required field'))) {
+      // Also check for error-like text in page body — only specific ATS error patterns
+      // NOTE: Do NOT check 'this field is required' — it appears in Datadog field descriptions always
+      if (!hasErrors && (postSubmitLower.includes('missing entry for required field') || postSubmitLower.includes('please fill in all required fields') || postSubmitLower.includes('required fields are missing'))) {
         console.log(`  ⚠️ Required field validation error detected in page text`);
         hasErrors = true;
+      }
+      
+      if (hasErrors) {
+        const html = await page.content();
+        writeFileSync('datadog_error.html', html);
+        await page.screenshot({ path: 'datadog_error_screenshot.png', fullPage: true });
       }
       
       const needsEmailVerification = postSubmitLower.includes('check your email') || 
@@ -878,37 +1610,70 @@ async function main() {
         if (urlChanged) console.log(`  📍 Redirected: ${preSubmitUrl.substring(0,50)} → ${url.substring(0,50)}`);
         results.applied++;
         job.needsEmailVerification = needsEmailVerification;
-        
+        // Track per-company count so subsequent jobs from same company are skipped
+        const ck = (job.company||'').toLowerCase().trim();
+        companiesApplied[ck] = (companiesApplied[ck] || 0) + 1;
         // 5. Insert Application and Take Screenshot Proof
         let methodCol = 'auto';
         if (tailoredChanges !== 'Base Resume (No modifications)') {
            methodCol = 'auto | ' + tailoredChanges.substring(0, 100);
         }
 
+        // Upload proof screenshot to 'proofs' path to keep it separate from resume PDFs
+        let screenshotUrl = null;
+        try {
+          const screenshotPath = join(ROOT, `proof_${job.eval_id}.jpeg`);
+          await page.screenshot({ path: screenshotPath, fullPage: true, quality: 40, type: 'jpeg' });
+          const screenshotBuffer = readFileSync(screenshotPath);
+          const proofFileName = `proof_${job.eval_id}_${Date.now()}.jpeg`;
+          await supabase.storage.from('screenshots').upload(proofFileName, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
+          screenshotUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${proofFileName}`;
+        } catch (ssErr) {
+          console.log(`  ⚠️ Failed to upload proof screenshot: ${ssErr.message}`);
+        }
+
         const { data: appData } = await supabase.from('applications').insert({
-          evaluation_id: job.eval_id, method: methodCol, status: 'submitted', pdf_path: tailoredInfo.publicUrl || RESUME_PATH, applied_at: new Date().toISOString()
+          evaluation_id: job.eval_id,
+          method: methodCol,
+          status: 'submitted',
+          pdf_path: tailoredInfo.publicUrl || RESUME_PATH,
+          screenshot_url: screenshotUrl,
+          applied_at: new Date().toISOString()
         }).select('id').single();
 
         if (appData) {
           job.app_id = appData.id;
-          const screenshotPath = join(ROOT, `proof_${job.eval_id}.jpeg`);
-          await page.screenshot({ path: screenshotPath, fullPage: true, quality: 40, type: 'jpeg' });
-          const screenshotBuffer = readFileSync(screenshotPath);
-          await supabase.storage.from('screenshots').upload(`${appData.id}.jpeg`, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
+          job.screenshotUrl = screenshotUrl;
         }
         job.resumeUsed = basename(activeResumePath || RESUME_PATH);
-        await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id);
+        // Save proof URL, resume URL, and timestamp directly into jobs row for easy dashboard display
+        try {
+          const { error: upErr } = await supabase.from('jobs').update({
+            status: 'applied',
+            proof_url: screenshotUrl || null,
+            tailored_resume_url: tailoredInfo.publicUrl || null,
+            applied_at: new Date().toISOString(),
+          }).eq('id', job.id);
+          if (upErr) {
+            // Fallback: columns may not exist yet — just update status
+            await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id);
+          }
+        } catch (upCatchErr) {
+          try { await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id); } catch(e) {}
+        }
         
         // 6. Send Cold Email and track result for Discord
         try {
           const { sendColdEmail } = await import('../services/cold-email.js');
           // Use readable YAML profile instead of raw PDF bytes which breaks Groq!
           const cvText = PROFILE_YAML; 
-          const emailSentTo = await sendColdEmail(job, null, cvText, activeResumePath);
+          const emailResult = await sendColdEmail(job, null, cvText, activeResumePath);
           
-          if (emailSentTo) {
+          if (emailResult && emailResult.target) {
             job.coldEmailSent = true;
-            job.coldEmailTarget = emailSentTo;
+            job.coldEmailTarget = emailResult.target;
+            job.coldEmailSubject = emailResult.subject;
+            job.coldEmailBody = emailResult.body;
           } else {
             job.coldEmailSent = false;
             job.coldEmailError = 'AI generation failed or target blocked';
@@ -918,6 +1683,17 @@ async function main() {
           job.coldEmailSent = false;
           job.coldEmailError = emailErr.message;
         }
+
+        // Save cold email result to the applications record via method field extension
+        // Format: "auto | tailoring changes ||| cold_email:{status}:{target}:{subject}"
+        try {
+          const coldStr = job.coldEmailSent
+            ? `COLD_EMAIL_SENT:${job.coldEmailTarget || ''}:${(job.coldEmailSubject||'').substring(0,80)}`
+            : `COLD_EMAIL_SKIP:${(job.coldEmailError||'not sent').substring(0,80)}`;
+          await supabase.from('applications')
+            .update({ method: `${(await supabase.from('applications').select('method').eq('id', job.latestAppId||0).single())?.data?.method || 'auto'} ||| ${coldStr}` })
+            .eq('evaluation_id', job.eval_id);
+        } catch {}
 
         appliedJobs.push(job);
       } else {
@@ -935,6 +1711,11 @@ async function main() {
            const errorScreenshotPath = join(ROOT, `error_${job.eval_id}.jpeg`);
            await page.screenshot({ path: errorScreenshotPath, fullPage: true, quality: 40, type: 'jpeg' });
            job.errorScreenshotPath = errorScreenshotPath;
+           
+           // DEBUG: Dump HTML to see what text caused the validation error
+           const htmlDumpPath = join(ROOT, `error_${job.eval_id}.html`);
+           const html = await page.content();
+           writeFileSync(htmlDumpPath, html);
          } catch (err) {}
       }
       
@@ -951,19 +1732,26 @@ async function main() {
   console.log(`\n📊 Results: ${results.applied} applied, ${results.failed} failed, ${results.skipped || 0} skipped\n`);
 
   for (const aj of appliedJobs) {
-    const proofUrl = aj.app_id ? `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${aj.app_id}.jpeg` : undefined;
+    const proofUrl = aj.screenshotUrl || undefined;
     const coldEmailStatus = aj.coldEmailSent
       ? `✅ Cold email sent to \`${aj.coldEmailTarget}\``
       : `❌ Cold email not sent${aj.coldEmailError ? ` (${aj.coldEmailError})` : ''}`;
+    
+    const fields = [
+      { name: '⭐ ATS Score', value: `${aj.score ? aj.score.toFixed(1) : '?'} / 5.0`, inline: true },
+      { name: '📄 Resume Used', value: aj.resumeUsed || basename(RESUME_PATH), inline: true },
+      { name: '📧 Cold Email', value: coldEmailStatus, inline: false }
+    ];
+    if (aj.coldEmailSent && aj.coldEmailSubject) {
+      fields.push({ name: '✉️ Subject', value: aj.coldEmailSubject.substring(0, 256), inline: false });
+      fields.push({ name: '📝 Body', value: aj.coldEmailBody ? `\`\`\`text\n${aj.coldEmailBody.substring(0, 1000)}\n\`\`\`` : 'No body', inline: false });
+    }
+
     await sendDiscordEmbed({
       title: `✅ Auto-Applied: ${aj.title}`,
       description: `Successfully applied to **${aj.company}**!${aj.needsEmailVerification ? '\n\n⚠️ **ATTENTION:** This platform requires email verification. Please check your inbox and click the confirmation link to finalize your application!' : ''}`,
       color: 0x00d2a0,
-      fields: [
-        { name: '⭐ ATS Score', value: `${aj.score ? aj.score.toFixed(1) : '?'} / 5.0`, inline: true },
-        { name: '📄 Resume Used', value: aj.resumeUsed || basename(RESUME_PATH), inline: true },
-        { name: '📧 Cold Email', value: coldEmailStatus, inline: false }
-      ],
+      fields: fields,
       image: proofUrl ? { url: proofUrl } : undefined,
       timestamp: new Date().toISOString()
     });
@@ -973,23 +1761,25 @@ async function main() {
 
   if (failedJobs.length > 0) {
     for (const fj of failedJobs) {
+      // Upload error screenshot to 'proofs' path — SEPARATE from resume pdf_path
       let errorProofUrl = null;
       if (fj.errorScreenshotPath && existsSync(fj.errorScreenshotPath)) {
         try {
           const screenshotBuffer = readFileSync(fj.errorScreenshotPath);
-          const fileName = `error_${fj.eval_id}.jpeg`;
+          const fileName = `error_${fj.eval_id}_${Date.now()}.jpeg`;
           await supabase.storage.from('screenshots').upload(fileName, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
           errorProofUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${fileName}`;
         } catch (err) {}
       }
 
-      let failureReason = fj.hasCaptcha ? 'Captcha Blocked' : (fj.errorMessage || 'Validation Error');
+      const failureReason = fj.hasCaptcha ? 'Captcha Blocked' : (fj.errorMessage || 'Validation Error');
 
       await supabase.from('applications').insert({
         evaluation_id: fj.eval_id,
-        method: failureReason.substring(0, 100), // Store reason in method
+        method: failureReason.substring(0, 100),
         status: 'failed',
-        pdf_path: errorProofUrl || null, // Store screenshot URL in pdf_path
+        pdf_path: fj.tailoredPublicUrl || null,       // resume PDF (may be null if failed before tailoring)
+        screenshot_url: errorProofUrl || null,         // error screenshot — NEVER mixed with pdf_path
         applied_at: new Date().toISOString()
       });
 

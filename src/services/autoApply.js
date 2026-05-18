@@ -119,6 +119,9 @@ export async function processApplication(job, evaluation) {
       console.log(`  ✅ Application recorded: ${job.company} → ${methodStr}`);
     } else if (result) {
       console.log(`  ❌ Submission failed: ${result.error}`);
+      // Write failure to DB so dashboard shows it — job goes to 'failed' status
+      insertApplication(evaluation.id || 0, `failed|${(result.error || 'unknown error').substring(0, 120)}`, pdfResult.path);
+      updateJobStatus(job.id, 'failed');
     }
 
     return {

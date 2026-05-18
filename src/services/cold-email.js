@@ -5,35 +5,51 @@ import { findHiringManagerEmail } from './email-finder.js';
 // Shared Groq call (use 8b for speed, fallback to 70b)
 async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant') {
   if (!process.env.GROQ_API_KEY) return '{}';
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 1000,
-      response_format: { type: 'json_object' },
-    }),
-  });
-  
-  if (!res.ok) {
-    if (res.status === 413 && model === 'llama-3.1-8b-instant') {
-      return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 1000,
+        response_format: { type: 'json_object' },
+      }),
+    });
+    
+    if (!res.ok) {
+      const errText = await res.text();
+      if (res.status === 413 && model === 'llama-3.1-8b-instant') {
+        return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+      }
+      if (res.status === 429 && errText.includes('TPD') && model === 'llama-3.1-8b-instant') {
+        return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+      }
+      if (res.status === 429 && errText.includes('TPD') && model === 'llama-3.3-70b-versatile') {
+        console.log('  ⚠️ Cold email: both models hit TPD limit. Skipping.');
+        return '{}';
+      }
+      if (res.status === 429 && errText.includes('TPM')) {
+        const waitMatch = errText.match(/try again in ([\d\.]+)s/);
+        const waitMs = waitMatch ? (parseFloat(waitMatch[1]) * 1000) + 1000 : 10000;
+        await new Promise(r => setTimeout(r, waitMs));
+        return await callGroq(systemPrompt, userPrompt, model);
+      }
+      return '{}';
     }
-    if (res.status === 429 && model === 'llama-3.1-8b-instant') {
-       return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
-    }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || '{}';
+  } catch (networkErr) {
+    console.log(`  ⚠️ Cold email Groq network error: ${networkErr.message}`);
     return '{}';
   }
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || '{}';
 }
 
 /**
@@ -126,7 +142,7 @@ export async function sendColdEmail(job, emailAddress, resumeContent, resumePdfP
   try {
     const info = await transporter.sendMail(mailOptions);
     console.log(`  ✅ Cold email sent to ${emailAddress}! Message ID: ${info.messageId}`);
-    return emailAddress;
+    return { target: emailAddress, subject: emailContent.subject, body: emailContent.body };
   } catch (error) {
     console.log(`  ❌ Failed to send cold email: ${error.message}`);
     return false;

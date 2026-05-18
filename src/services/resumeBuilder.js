@@ -113,8 +113,8 @@ Return ONLY valid JSON matching this exact structure:
     try {
        const pdfBuffer = readFileSync(outputPath);
        const fileName = `resume_${job.id}_${Date.now()}.pdf`;
-       await supabase.storage.from('screenshots').upload(fileName, pdfBuffer, { upsert: true, contentType: 'application/pdf' });
-       publicUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${fileName}`;
+       await supabase.storage.from('resumes').upload(fileName, pdfBuffer, { upsert: true, contentType: 'application/pdf' });
+       publicUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/resumes/${fileName}`;
        console.log(`  📎 Tailored resume generated & uploaded`);
     } catch(e) {
        console.error('  ⚠️ Failed to upload tailored resume:', e.message);

@@ -565,31 +565,48 @@ async function loadApplied() {
       const date = new Date(a.applied_at);
       const timeAgo = getTimeAgo(date);
       const dateStr = date.toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'});
-      const methodColors = { auto: '#00d2a0', manual: '#4da6ff' };
-      const methodBg = methodColors[a.method] || '#666';
 
       // Status badge
       const statusBadge = a.app_status === 'applied' || a.app_status === 'submitted'
-        ? '<span style="background:#00d2a0;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">✅ DISPATCHED</span>'
+        ? '<span style="background:#00d2a0;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">✅ APPLIED</span>'
         : a.app_status === 'failed'
           ? '<span style="background:#ff5252;color:#fff;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">❌ FAILED</span>'
           : '<span style="background:#ffd93d;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">⏳ PENDING</span>';
 
-      // Tailored resume link
-      const resumeLink = a.pdf_path
-        ? `<a href="${a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : '/api/resume'}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 View PDF</a>`
-        : '—';
+      // ✅ PROOF = screenshot_url (the actual submission screenshot) 
+      // ✅ RESUME = pdf_path (the tailored resume PDF uploaded to storage)
+      // These are separate fields — proof is the screenshot, pdf_path is the resume
+      const proofHtml = a.screenshot_url
+        ? `<a href="${a.screenshot_url}" target="_blank" style="color:#00d2a0;text-decoration:none;font-size:12px;" title="View submission proof screenshot">📸 Proof</a>`
+        : a.app_status === 'failed' && a.pdf_path && a.pdf_path.startsWith('http')
+          ? `<a href="${a.pdf_path}" target="_blank" style="color:#ff5252;text-decoration:none;font-size:12px;" title="View failure screenshot">📸 Error</a>`
+          : '<span style="color:#666;font-size:12px;">—</span>';
 
-      // Screenshot proof link
-      const SUPABASE_SCREENSHOTS = 'https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots';
-      let screenshotHtml = '—';
-      if (a.app_status === 'submitted' || a.app_status === 'applied') {
-        const proofUrl = `${SUPABASE_SCREENSHOTS}/${a.app_id}.jpeg`;
-        screenshotHtml = `<a href="${proofUrl}" target="_blank" style="color:#00d2a0;text-decoration:none;font-size:12px;" title="View submission proof">📸 Proof</a>`;
-      } else if (a.app_status === 'failed') {
-        const errorUrl = a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : `${SUPABASE_SCREENSHOTS}/error_${a.eval_id}.jpeg`;
-        screenshotHtml = `<a href="${errorUrl}" target="_blank" style="color:#ff5252;text-decoration:none;font-size:12px;" title="View failure screenshot">📸 Error</a>`;
+      // Resume PDF link — only show if pdf_path is actually a PDF (not a screenshot)
+      const isPdf = a.pdf_path && a.pdf_path.startsWith('http') && a.pdf_path.includes('.pdf');
+      const resumeHtml = isPdf
+        ? `<a href="${a.pdf_path}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 Resume</a>`
+        : '<span style="color:#666;font-size:12px;">—</span>';
+
+      // Parse cold email status from the method field extension
+      // Format: "auto | tailoring... ||| COLD_EMAIL_SENT:target:subject" or "COLD_EMAIL_SKIP:reason"
+      const method = a.method || '';
+      const coldPart = method.includes('|||') ? method.split('|||')[1].trim() : '';
+      let coldEmailHtml = '<span style="color:#666;font-size:11px;">—</span>';
+      if (coldPart.startsWith('COLD_EMAIL_SENT:')) {
+        const parts = coldPart.replace('COLD_EMAIL_SENT:', '').split(':');
+        const target = parts[0] || '';
+        const subject = parts.slice(1).join(':').substring(0, 50);
+        coldEmailHtml = `<span style="color:#00d2a0;font-size:11px;" title="To: ${esc(target)}\nSubject: ${esc(subject)}">✅ Sent</span><div style="font-size:10px;color:#666;">${esc(target.substring(0,25))}</div>`;
+      } else if (coldPart.startsWith('COLD_EMAIL_SKIP:')) {
+        const reason = coldPart.replace('COLD_EMAIL_SKIP:', '').substring(0, 40);
+        coldEmailHtml = `<span style="color:#ff9f43;font-size:11px;" title="${esc(reason)}">⏸ Skipped</span><div style="font-size:10px;color:#666;">${esc(reason.substring(0,25))}</div>`;
       }
+
+      // Method badge (auto/manual) — strip the ||| cold email extension
+      const methodLabel = method.split('|')[0].trim() || 'manual';
+      const methodColors = { auto: '#00d2a0', manual: '#4da6ff' };
+      const methodBg = methodColors[methodLabel.toLowerCase()] || '#666';
 
       return `
         <tr>
@@ -602,12 +619,13 @@ async function loadApplied() {
           <td>${esc(a.title || 'N/A')}</td>
           <td>📍 ${esc(a.location || 'N/A')}</td>
           <td>${platformIcon(a.platform)} ${esc(a.platform || 'N/A')}</td>
-          <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${(a.method ? a.method.split('|')[0].trim() : 'manual').toUpperCase()}</span></td>
+          <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${methodLabel.toUpperCase()}</span></td>
           <td><span class="grade-badge grade-${a.letter_grade}" style="font-size:12px;width:28px;height:28px;">${a.letter_grade || '?'}</span></td>
           <td style="font-weight:600;">${a.weighted_score ? a.weighted_score.toFixed(1) : '?'}/5</td>
-          <td>${screenshotHtml}</td>
-          <td>${resumeLink}</td>
-          <td>${a.apply_link ? '<a href="' + a.apply_link + '" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View Job</a>' : '—'}</td>
+          <td>${proofHtml}</td>
+          <td>${resumeHtml}</td>
+          <td>${coldEmailHtml}</td>
+          <td>${a.apply_link ? '<a href="' + a.apply_link + '" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View</a>' : '—'}</td>
         </tr>
       `;
     }).join('');
