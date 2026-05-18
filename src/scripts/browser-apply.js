@@ -1470,13 +1470,13 @@ async function main() {
             const securityInput = await page.$('#security-input-0').catch(() => null);
             if (securityInput && await securityInput.isVisible().catch(() => false)) {
               const companyName = job.company || 'Company';
+              const safeCompany = companyName.replace(/['"\\]/g, ''); 
               console.log(`  🔒 Security code verification required!`);
               writeFileSync('WAITING_FOR_SECURITY_CODE.txt', `Check email for code from ${companyName}, then run: echo "CODE" > security_code.txt`);
               
               // macOS notification + terminal bell
-              const notifMsg = `Check your email for verification code from ${companyName}. Run: echo "CODE" > security_code.txt`;
               import('child_process').then(({ execSync }) => {
-                try { execSync(`osascript -e 'display notification "${notifMsg}" with title "JobAuto: Code Needed" sound name "Glass"'`); } catch(e) {}
+                try { execSync(`osascript -e 'display notification "Check email: code needed for ${safeCompany}" with title "JobAuto: OTP Required" sound name "Glass"'`); } catch(e) {}
               }).catch(() => {});
               process.stdout.write('\x07'); // terminal bell
               console.log(`  ⏳ Waiting up to 10 min — run: echo "CODE" > /Users/abhishek/Documents/jobauto/security_code.txt`);
