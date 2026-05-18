@@ -1249,31 +1249,75 @@ async function main() {
       await page.goto(job.apply_link, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(2000 + Math.random() * 1500);
 
-      // === JOB BOARD REDIRECT: arbeitnow/remoteok are aggregators, not ATS forms ===
+      // === JOB BOARD REDIRECT: arbeitnow/remoteok/jobgether are aggregators, not ATS forms ===
       const currentUrl = page.url().toLowerCase();
       if (currentUrl.includes('arbeitnow.com') || currentUrl.includes('remoteok.com') || currentUrl.includes('jobgether.com')) {
-        console.log(`  🔀 Job board detected (${job.platform}) — finding real apply link...`);
-        const realApplyUrl = await page.evaluate(() => {
-          // arbeitnow: look for external apply button
-          const applyBtn = document.querySelector('a[href*="greenhouse"], a[href*="lever.co"], a[href*="ashbyhq"], a[href*="workday"], a[href*="myworkdayjobs"], a.apply-button[target="_blank"], a[data-action="apply"][href], a[rel="nofollow"][href*="apply"], a[href*="boards."]');
-          if (applyBtn) return applyBtn.href;
-          // Generic: any external link with "apply" text
-          const links = Array.from(document.querySelectorAll('a'));
-          const applyLink = links.find(a => /apply|bewerben/i.test(a.textContent) && a.href && !a.href.includes(window.location.hostname));
-          if (applyLink) return applyLink.href;
-          return null;
-        });
+        console.log(`  🔀 Job board detected (${job.platform}) — waiting for JS to render apply button...`);
+        
+        // Wait for the JS-rendered apply button (ArbeitNow uses Vue.js, loads async)
+        let realApplyUrl = null;
+        const ATS_DOMAINS = ['greenhouse.io', 'lever.co', 'ashbyhq.com', 'workday.com', 'myworkdayjobs.com',
+                             'smartrecruiters.com', 'recruitee.com', 'personio.de', 'personio.com',
+                             'jobvite.com', 'breezy.hr', 'bamboohr.com', 'icims.com', 'taleo.net',
+                             'teamtailor.com', 'jazz.co', 'recruitingbypaycor.com', 'successfactors.eu'];
+
+        // Strategy 1: Wait up to 8s for an ATS link to appear in the DOM
+        try {
+          const atsSelector = ATS_DOMAINS.map(d => `a[href*="${d}"]`).join(', ');
+          await page.waitForSelector(atsSelector, { timeout: 8000 });
+          realApplyUrl = await page.evaluate((domains) => {
+            for (const d of domains) {
+              const el = document.querySelector(`a[href*="${d}"]`);
+              if (el && el.href) return el.href;
+            }
+            return null;
+          }, ATS_DOMAINS);
+        } catch (e) {}
+
+        // Strategy 2: Click the "Apply" / "Bewerben" button and catch the navigation
+        if (!realApplyUrl) {
+          try {
+            const applyBtn = await page.$('a[class*="apply"], button[class*="apply"], a:has-text("Apply Now"), a:has-text("Apply"), a:has-text("Jetzt bewerben"), a:has-text("Bewerben")').catch(() => null);
+            if (applyBtn) {
+              const [newPage] = await Promise.race([
+                Promise.all([page.context().waitForEvent('page', { timeout: 5000 }), applyBtn.click()]),
+                new Promise(r => setTimeout(() => r([null]), 5000))
+              ]).catch(() => [null]);
+              if (newPage && newPage.url && newPage.url() !== 'about:blank') {
+                realApplyUrl = newPage.url();
+                await newPage.close().catch(() => {});
+              }
+            }
+          } catch (e) {}
+        }
+
+        // Strategy 3: Generic external link with apply-like text
+        if (!realApplyUrl) {
+          realApplyUrl = await page.evaluate(() => {
+            const links = Array.from(document.querySelectorAll('a'));
+            const external = links.find(a =>
+              /apply now|apply|bewerben|jetzt bewerben/i.test(a.textContent?.trim()) &&
+              a.href && !a.href.includes(window.location.hostname)
+            );
+            return external?.href || null;
+          });
+        }
+
         if (realApplyUrl) {
-          console.log(`  ✅ Found real ATS: ${realApplyUrl.substring(0, 80)}...`);
+          console.log(`  ✅ Found real ATS: ${realApplyUrl.substring(0, 80)}`);
+          // Update stored apply_link so we skip this lookup next time
+          await supabase.from('jobs').update({ apply_link: realApplyUrl, platform: new URL(realApplyUrl).hostname.replace('www.','').split('.')[0] }).eq('id', job.id).catch(() => {});
           await page.goto(realApplyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
           await page.waitForTimeout(2000 + Math.random() * 1000);
         } else {
-          throw new Error('Job board page — could not find external apply URL');
+          // Archive it — ArbeitNow listing with no extractable apply link
+          await supabase.from('jobs').update({ status: 'archived', notes: 'ArbeitNow: no external apply URL found' }).eq('id', job.id).catch(() => {});
+          throw new Error('Job board page — could not find external apply URL (archived)');
         }
       }
 
-      // === IFRAME REDIRECT: Some career pages (like Datadog) embed the ATS form in an iframe ===
-      // Wait for dynamic injection
+      // === IFRAME REDIRECT: Some career pages embed the ATS form in an iframe ===
+      // Always re-extract fresh iframe URL from the live page (stored URLs may have expired validityTokens)
       try {
         await page.waitForSelector('iframe[src*="greenhouse.io"], iframe[src*="lever.co"], iframe[src*="ashbyhq.com"], iframe[src*="workday.com"]', { timeout: 5000 });
       } catch (e) {}
@@ -1287,7 +1331,9 @@ async function main() {
       const currentDomain = page.url();
       const alreadyOnATS = /greenhouse\.io|lever\.co|ashbyhq\.com|workday\.com/i.test(currentDomain);
       if (iframeUrl && !alreadyOnATS && !iframeUrl.includes('googleapis.com') && !iframeUrl.includes('gstatic.com')) {
-        console.log(`  🔀 ATS embedded in iframe detected. Navigating directly to iframe: ${iframeUrl.substring(0, 80)}...`);
+        console.log(`  🔀 ATS embedded in iframe — using fresh token from live page: ${iframeUrl.substring(0, 80)}...`);
+        // Store the fresh iframe URL for next time
+        await supabase.from('jobs').update({ apply_link: iframeUrl }).eq('id', job.id).catch(() => {});
         await page.goto(iframeUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.waitForTimeout(2000 + Math.random() * 1000);
       }
