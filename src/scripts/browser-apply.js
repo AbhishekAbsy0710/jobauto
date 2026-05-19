@@ -1306,7 +1306,7 @@ async function main() {
         if (realApplyUrl) {
           console.log(`  ✅ Found real ATS: ${realApplyUrl.substring(0, 80)}`);
           // Update stored apply_link so we skip this lookup next time
-          await supabase.from('jobs').update({ apply_link: realApplyUrl, platform: new URL(realApplyUrl).hostname.replace('www.','').split('.')[0] }).eq('id', job.id).catch(() => {});
+          try { await supabase.from('jobs').update({ apply_link: realApplyUrl, platform: new URL(realApplyUrl).hostname.replace('www.','').split('.')[0] }).eq('id', job.id); } catch(e) {}
           await page.goto(realApplyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
           await page.waitForTimeout(2000 + Math.random() * 1000);
         } else {
@@ -1333,7 +1333,7 @@ async function main() {
       if (iframeUrl && !alreadyOnATS && !iframeUrl.includes('googleapis.com') && !iframeUrl.includes('gstatic.com')) {
         console.log(`  🔀 ATS embedded in iframe — using fresh token from live page: ${iframeUrl.substring(0, 80)}...`);
         // Store the fresh iframe URL for next time
-        await supabase.from('jobs').update({ apply_link: iframeUrl }).eq('id', job.id).catch(() => {});
+        try { await supabase.from('jobs').update({ apply_link: iframeUrl }).eq('id', job.id); } catch(e) {}
         await page.goto(iframeUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.waitForTimeout(2000 + Math.random() * 1000);
       }
