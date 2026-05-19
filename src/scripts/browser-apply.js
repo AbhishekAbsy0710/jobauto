@@ -51,7 +51,7 @@ async function sendDiscordEmbed(embed) {
   } catch {}
 }
 
-async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant') {
+async function callGroq(systemPrompt, userPrompt, model = 'gemma2-9b-it') {
   if (!process.env.GROQ_API_KEY) return '{}';
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -76,15 +76,15 @@ async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant'
       console.log(`  ⚠️ Groq API Error (${model}): ${res.status} - ${errText}`);
       
       if (res.status === 413) {
-        if (model === 'llama-3.1-8b-instant') {
-          console.log(`  🔄 Request too large for 8b, trying 70b...`);
+        if (model === 'gemma2-9b-it') {
+          console.log(`  🔄 Request too large for gemma2, trying 70b...`);
           return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
         }
         return '{}';
       }
       
-      if (res.status === 429 && model === 'llama-3.1-8b-instant' && errText.includes('TPD')) {
-        console.log(`  🔄 Retrying with fallback model: llama-3.3-70b-versatile`);
+      if (res.status === 429 && model === 'gemma2-9b-it' && errText.includes('TPD')) {
+        console.log(`  🔄 Daily limit hit on gemma2, trying 70b...`);
         return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
       }
       
@@ -587,20 +587,37 @@ CRITICAL RULES:
              }
           });
         } else if (ans.type === 'select' || ans.type === 'select-one') {
-          // Try named selector first, then fall back to scanning all selects by option text
+          // Try named selector first (3s timeout), then fall back to full-page select scan
           const selectFilled = await page.selectOption(selector, { value: ans.value }, { force: true, timeout: 3000 })
             .catch(() => page.selectOption(selector, { label: ans.value }, { force: true, timeout: 3000 }))
             .catch(() => null);
           if (!selectFilled) {
-            // Fallback: find any visible select whose options include the desired value
+            // Smarter fallback: scan all visible selects, try exact → partial → EEO-default matching
             const allSels = await page.$$('select');
+            const targetLower = (ans.value || '').toLowerCase();
+            let filled = false;
             for (const sel of allSels) {
               if (!await sel.isVisible().catch(() => false)) continue;
-              const picked = await sel.selectOption({ label: ans.value }, { timeout: 1000 })
-                .catch(() => sel.selectOption({ value: ans.value }, { timeout: 1000 }))
-                .catch(() => null);
-              if (picked) break;
+              // Get all option labels for this select
+              const opts = await sel.evaluate(s =>
+                Array.from(s.options).map(o => ({ v: o.value, l: o.text.trim() }))
+              ).catch(() => []);
+              if (!opts.length) continue;
+              // 1. Exact label match
+              const exact = opts.find(o => o.l.toLowerCase() === targetLower);
+              // 2. Partial label match (e.g. "1 month" matches "1 Month Notice")
+              const partial = opts.find(o => o.l.toLowerCase().includes(targetLower) || targetLower.includes(o.l.toLowerCase().replace(/[^a-z0-9]/g,'').substring(0,5)));
+              // 3. EEO / decline default — for gender/veteran/disability/sponsorship fields
+              const eeoDefault = opts.find(o => /prefer not|decline|not disclose|i don.t wish/i.test(o.l));
+              // 4. "No" default for yes/no selects (visa sponsorship)
+              const noOpt = opts.find(o => /^no$/i.test(o.l.trim()));
+              const chosen = exact || partial || eeoDefault || noOpt;
+              if (chosen) {
+                const picked = await sel.selectOption({ value: chosen.v }, { timeout: 1000 }).catch(() => null);
+                if (picked) { filled = true; break; }
+              }
             }
+            if (!filled) console.log(`    ↳ ⚠️ Could not fill select for field: ${ans.name} (value: ${ans.value})`);
           }
         } else if (ans.type === 'reactselect') {
           // Greenhouse React Select v2 — type into the hidden input, wait for dropdown, click option
@@ -1821,6 +1838,12 @@ async function main() {
     }
 
     await page.close().catch(() => {});
+
+    // Inter-job cooldown: let Groq TPM window reset (1 min = 6k tokens refill)
+    if (job !== jobs[jobs.length - 1]) {
+      console.log('  ⏱️  Cooling down 65s before next job (Groq TPM reset)...');
+      await new Promise(r => setTimeout(r, 65000));
+    }
   }
 
   await browser.close();
