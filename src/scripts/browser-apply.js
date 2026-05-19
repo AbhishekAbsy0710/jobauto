@@ -689,60 +689,49 @@ async function dismissCookieBanners(page) {
 // ============================================
 // DEMOGRAPHIC SURVEY FIELDS (hard-coded to avoid AI hallucination)
 // ============================================
+
+// Pick first matching label from a select element, trying multiple fallbacks
+async function pickSelectOption(page, el, labelCandidates) {
+  for (const label of labelCandidates) {
+    try {
+      await el.selectOption({ label }, { timeout: 3000 });
+      return label;
+    } catch {}
+    try {
+      await el.selectOption({ value: label }, { timeout: 1000 });
+      return label;
+    } catch {}
+  }
+  return null;
+}
+
 async function fillDemographicFields(page) {
-  // Gender
-  const genderSelectors = [
-    'select[name*="gender"], select[id*="gender"]',
-    'select[name*="Gender"], select[id*="Gender"]',
-  ];
-  for (const sel of genderSelectors) {
+  // Scan ALL visible selects on the page and fill by detected field type
+  const allSelects = await page.$$('select');
+  for (const el of allSelects) {
     try {
-      const el = await page.$(sel);
-      if (el && await el.isVisible()) {
-        await page.selectOption(sel, { label: 'Decline to self-identify' }).catch(() =>
-          page.selectOption(sel, { label: 'Prefer not to say' }).catch(() =>
-            page.selectOption(sel, { label: 'I do not wish to answer' }).catch(() => {})
-          )
-        );
-      }
-    } catch {}
-  }
+      if (!await el.isVisible()) continue;
+      const name = (await el.getAttribute('name') || '').toLowerCase();
+      const id   = (await el.getAttribute('id')   || '').toLowerCase();
+      const key  = name + ' ' + id;
 
-  // Veteran status
-  const vetSelectors = ['select[name*="veteran"], select[id*="veteran"]', 'select[name*="Veteran"], select[id*="Veteran"]'];
-  for (const sel of vetSelectors) {
-    try {
-      const el = await page.$(sel);
-      if (el && await el.isVisible()) {
-        await page.selectOption(sel, { label: 'I am not a protected veteran' }).catch(() =>
-          page.selectOption(sel, { label: 'I don\'t wish to answer' }).catch(() => {})
-        );
-      }
-    } catch {}
-  }
-
-  // Disability
-  const disSelectors = ['select[name*="disability"], select[id*="disability"]', 'select[name*="Disability"], select[id*="Disability"]'];
-  for (const sel of disSelectors) {
-    try {
-      const el = await page.$(sel);
-      if (el && await el.isVisible()) {
-        await page.selectOption(sel, { label: 'I don\'t wish to answer' }).catch(() =>
-          page.selectOption(sel, { label: 'Prefer not to say' }).catch(() => {})
-        );
-      }
-    } catch {}
-  }
-
-  // Race/ethnicity
-  const raceSelectors = ['select[name*="race"], select[id*="race"], select[name*="ethnicity"], select[id*="ethnicity"]'];
-  for (const sel of raceSelectors) {
-    try {
-      const el = await page.$(sel);
-      if (el && await el.isVisible()) {
-        await page.selectOption(sel, { label: 'Decline to self-identify' }).catch(() =>
-          page.selectOption(sel, { label: 'I don\'t wish to answer' }).catch(() => {})
-        );
+      if (/gender/.test(key)) {
+        await pickSelectOption(page, el, ['Decline to self-identify','Prefer not to say','I do not wish to answer','I prefer not to say','Choose not to disclose']);
+      } else if (/veteran/.test(key)) {
+        await pickSelectOption(page, el, ['I am not a protected veteran',"I don't wish to answer",'I choose not to disclose','Prefer not to say']);
+      } else if (/disabilit/.test(key)) {
+        await pickSelectOption(page, el, ["I don't wish to answer",'I do not have a disability','Prefer not to say','I choose not to disclose']);
+      } else if (/race|ethnic/.test(key)) {
+        await pickSelectOption(page, el, ['Decline to self-identify',"I don't wish to answer",'I prefer not to say']);
+      } else if (/noticePeriod|notice_period|notice/.test(key)) {
+        // Lever notice period — pick shortest available
+        await pickSelectOption(page, el, ['Immediately','2 weeks','1 month','Immediate','Less than 1 month','< 1 month','Two weeks']);
+      } else if (/visa|sponsorship|workauth/.test(key)) {
+        await pickSelectOption(page, el, ['No','Not required','I do not require sponsorship','No, I do not need sponsorship']);
+      } else if (/howdidyouhear|how_did_you_hear|source|referral/.test(key)) {
+        await pickSelectOption(page, el, ['LinkedIn','Job board','Online','Internet','Other']);
+      } else if (/salary|compensation|expect/.test(key)) {
+        // skip — handled elsewhere
       }
     } catch {}
   }
@@ -1142,14 +1131,39 @@ async function main() {
   console.log(`\n🚀 Auto-applying to ${jobs.length} jobs via Playwright (AI Enabled)...\n`);
 
   const isHeaded = process.env.HEADED === 'true';
-  const browser = await chromium.launch({ headless: !isHeaded, slowMo: isHeaded ? 300 : 150, timeout: 30000 });
+  const browser = await chromium.launch({
+    headless: !isHeaded,
+    slowMo: isHeaded ? 300 : 150,
+    timeout: 30000,
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-web-security',
+      '--disable-dev-shm-usage',
+    ],
+  });
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    viewport: { width: 1366, height: 768 },
+    viewport: { width: 1440, height: 900 },
     locale: 'en-US',
     timezoneId: 'Europe/Berlin',
     geolocation: { longitude: 11.58, latitude: 48.14 },
     permissions: ['geolocation'],
+    extraHTTPHeaders: {
+      'Accept-Language': 'en-US,en;q=0.9',
+      'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"macOS"',
+    },
+  });
+  // Erase navigator.webdriver on every new page to defeat basic bot detection
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    window.chrome = { runtime: {} };
   });
   
   // Set a reasonable timeout — 10s for async form rendering
