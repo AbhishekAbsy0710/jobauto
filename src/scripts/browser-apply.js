@@ -587,7 +587,21 @@ CRITICAL RULES:
              }
           });
         } else if (ans.type === 'select' || ans.type === 'select-one') {
-          await page.selectOption(selector, { value: ans.value }, { force: true }).catch(() => page.selectOption(selector, { label: ans.value }, { force: true }));
+          // Try named selector first, then fall back to scanning all selects by option text
+          const selectFilled = await page.selectOption(selector, { value: ans.value }, { force: true, timeout: 3000 })
+            .catch(() => page.selectOption(selector, { label: ans.value }, { force: true, timeout: 3000 }))
+            .catch(() => null);
+          if (!selectFilled) {
+            // Fallback: find any visible select whose options include the desired value
+            const allSels = await page.$$('select');
+            for (const sel of allSels) {
+              if (!await sel.isVisible().catch(() => false)) continue;
+              const picked = await sel.selectOption({ label: ans.value }, { timeout: 1000 })
+                .catch(() => sel.selectOption({ value: ans.value }, { timeout: 1000 }))
+                .catch(() => null);
+              if (picked) break;
+            }
+          }
         } else if (ans.type === 'reactselect') {
           // Greenhouse React Select v2 — type into the hidden input, wait for dropdown, click option
           const rsInput = await page.$(`#${cssEscape(ans.name)}, [id="${ans.name}"]`).catch(() => null);
