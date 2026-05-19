@@ -51,7 +51,7 @@ async function sendDiscordEmbed(embed) {
   } catch {}
 }
 
-async function callGroq(systemPrompt, userPrompt, model = 'gemma2-9b-it') {
+async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant') {
   if (!process.env.GROQ_API_KEY) return '{}';
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -73,23 +73,31 @@ async function callGroq(systemPrompt, userPrompt, model = 'gemma2-9b-it') {
     });
     if (!res.ok) {
       const errText = await res.text();
-      console.log(`  ⚠️ Groq API Error (${model}): ${res.status} - ${errText}`);
+      console.log(`  ⚠️ Groq API Error (${model}): ${res.status} - ${errText.substring(0,200)}`);
       
+      // Model decommissioned or invalid — escalate to 70b immediately
+      if (res.status === 400 && errText.includes('decommissioned')) {
+        if (model !== 'llama-3.3-70b-versatile') {
+          console.log(`  🔄 Model decommissioned, switching to llama-3.3-70b-versatile...`);
+          return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+        }
+        return '{}';
+      }
+
       if (res.status === 413) {
-        if (model === 'gemma2-9b-it') {
-          console.log(`  🔄 Request too large for gemma2, trying 70b...`);
+        if (model !== 'llama-3.3-70b-versatile') {
+          console.log(`  🔄 Request too large, trying 70b...`);
           return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
         }
         return '{}';
       }
       
-      if (res.status === 429 && model === 'gemma2-9b-it' && errText.includes('TPD')) {
-        console.log(`  🔄 Daily limit hit on gemma2, trying 70b...`);
-        return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
-      }
-      
-      if (res.status === 429 && model === 'llama-3.3-70b-versatile' && errText.includes('TPD')) {
-        console.log(`  ⚠️ Both models hit TPD limit. Skipping...`);
+      if (res.status === 429 && errText.includes('TPD')) {
+        if (model !== 'llama-3.3-70b-versatile') {
+          console.log(`  🔄 Daily TPD limit, trying 70b...`);
+          return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+        }
+        console.log(`  ⚠️ All models hit TPD limit. Skipping...`);
         return '{}';
       }
       
