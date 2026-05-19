@@ -1111,7 +1111,7 @@ async function main() {
 
   let query = supabase
     .from('jobs')
-    .select('*, evaluations!inner(id, letter_grade, weighted_score)')
+    .select('*, evaluations(id, letter_grade, weighted_score)')
     .eq('status', 'auto_queue');
 
   // TEST MODE: restrict to a single job ID for safe testing
@@ -1129,7 +1129,7 @@ async function main() {
 
   let jobs = rawJobs.map(j => {
     const e = Array.isArray(j.evaluations) ? j.evaluations[0] : j.evaluations;
-    return { ...j, eval_id: e.id, grade: e.letter_grade, score: e.weighted_score };
+    return { ...j, eval_id: e?.id, grade: e?.letter_grade, score: e?.weighted_score || 0 };
   }).sort((a, b) => b.score - a.score);
 
   // LIMIT: Max 10 jobs per run to stay within Groq free tier (100k TPD)
