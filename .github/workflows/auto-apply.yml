@@ -1,38 +1,91 @@
-name: Browser Auto-Apply
+name: Auto Apply Jobs
 
 on:
   schedule:
-    # Run twice a day (1:00 and 13:00 UTC)
-    - cron: '0 1,13 * * *'
-  workflow_dispatch: # Allow manual trigger
+    # 8:00 AM Berlin time (UTC+2 in summer) = 6:00 AM UTC
+    - cron: '0 6 * * 1-5'   # Mon–Fri only
+  workflow_dispatch:          # allow manual trigger from GitHub UI
 
 jobs:
-  auto-apply:
+  apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120      # 2 hour max per run
 
     steps:
-      - name: Checkout repository
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repo
         uses: actions/checkout@v4
 
+      # ── 2. Node.js ───────────────────────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install Node dependencies
         run: npm ci
 
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
+      # ── 3. Python ────────────────────────────────────────────────────────────
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Run Auto-Apply Script
+      - name: Install Python dependencies
+        run: |
+          pip install --quiet \
+            google-auth \
+            google-auth-oauthlib \
+            google-api-python-client
+
+      # ── 4. Playwright / Chromium ─────────────────────────────────────────────
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      # ── 5. Write secrets to files ────────────────────────────────────────────
+      - name: Write .env
+        run: |
+          cat > .env << 'ENVEOF'
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}
+          ENVEOF
+
+      - name: Write Gmail token
+        run: echo '${{ secrets.GMAIL_TOKEN }}' > gmail_token.json
+
+      # ── 6. Start Gmail OTP watcher in background ─────────────────────────────
+      - name: Start Gmail OTP watcher
+        run: |
+          python3 src/scripts/gmail-otp-watcher.py > /tmp/otp-watcher.log 2>&1 &
+          echo "OTP_WATCHER_PID=$!" >> $GITHUB_ENV
+          echo "✅ Gmail OTP watcher started (PID: $!)"
+          sleep 3  # give it time to authenticate
+
+      # ── 7. Run the apply pipeline ─────────────────────────────────────────────
+      - name: Run browser-apply
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          APPLICANT_EMAIL: ${{ secrets.APPLICANT_EMAIL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GMAIL_USER: ${{ secrets.GMAIL_USER }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: node src/scripts/browser-apply.js
+
+      # ── 8. Show OTP watcher logs ──────────────────────────────────────────────
+      - name: Show OTP watcher log
+        if: always()
+        run: cat /tmp/otp-watcher.log || true
+
+      # ── 9. Upload screenshots/evidence as artifacts ───────────────────────────
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-screenshots-${{ github.run_number }}
+          path: |
+            *.png
+            *.html
+          retention-days: 7
+          if-no-files-found: ignore

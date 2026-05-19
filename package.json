@@ -8,11 +8,15 @@
     "dev": "node --watch src/server.cjs",
     "scrape": "node src/scripts/scrape-now.js",
     "evaluate": "node src/scripts/evaluate-now.js",
-    "setup-db": "node src/database.js --setup"
+    "setup-db": "node src/database.js --setup",
+    "apply": "node src/scripts/browser-apply.js",
+    "watch-otp": "python3 src/scripts/gmail-otp-watcher.py",
+    "run-all": "python3 src/scripts/gmail-otp-watcher.py & node src/scripts/browser-apply.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
     "better-sqlite3": "^11.7.0",
+    "cheerio": "^1.2.0",
     "express": "^4.21.0",
     "js-yaml": "^4.1.0",
     "marked": "^15.0.0",
