@@ -1078,7 +1078,46 @@ async function fillBaseFields(page, resumePath) {
       }
     } catch (e) {}
   }
+
+  // ── Lever EEO / Diversity fields ─────────────────────────────────────────
+  // These are optional but required for form submission on many Lever postings.
+  // We select "Decline to self-identify" for all demographic dropdowns.
+  const eeoSelects = {
+    'select[name="eeo[gender]"]':   'Decline to self-identify',
+    'select[name="eeo[race]"]':     'Decline to self-identify',
+    'select[name="eeo[veteran]"]':  'I decline to self-identify for protected veteran status',
+    'select[name="eeo[disability]"]': 'I do not want to answer',
+  };
+  for (const [sel, val] of Object.entries(eeoSelects)) {
+    try {
+      const el = await page.$(sel);
+      if (el && await el.isVisible()) {
+        await el.selectOption({ label: val }).catch(async () => {
+          // Fallback: pick first non-empty option
+          await page.evaluate((s) => {
+            const el = document.querySelector(s);
+            if (el && el.options.length > 1) {
+              el.selectedIndex = el.options.length - 1; // "Decline" is always last
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }, sel);
+        });
+      }
+    } catch {}
+  }
+
+  // Disability signature fields (name + date required on many Lever forms)
+  await fillField(page, 'input[name="eeo[disabilitySignature]"], input[name="eeo[disabilitySignatureName]"]', PROFILE.fullName);
+  try {
+    const dateSel = await page.$('input[name="eeo[disabilitySignatureDate]"], input[name="accountId"]');
+    if (dateSel && await dateSel.isVisible()) {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      await dateSel.fill(today).catch(() => {});
+    }
+  } catch {}
+  // ─────────────────────────────────────────────────────────────────────────
 }
+
 
 async function fillField(page, selector, value) {
   try {
