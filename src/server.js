@@ -125,7 +125,7 @@ app.get('/api/applications', async (req, res) => {
   try {
     const { getDb } = await import('./database.js');
     const apps = getDb().prepare(`
-      SELECT a.id as app_id, a.method, a.status as app_status, a.cover_letter, a.pdf_path, a.applied_at,
+      SELECT a.id as app_id, a.method, a.status as app_status, a.cover_letter, a.pdf_path, a.screenshot_url, a.applied_at,
              j.title, j.company, j.location, j.platform, j.apply_link,
              e.letter_grade, e.weighted_score, e.archetype, e.matching_skills, e.missing_skills,
              e.resume_improvements, e.reason

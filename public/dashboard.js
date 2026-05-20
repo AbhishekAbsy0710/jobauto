@@ -243,7 +243,7 @@ async function openJobModal(id) {
       <div style="background:rgba(255, 69, 0, 0.1); border-left: 4px solid #ff4500; padding: 12px; border-radius: 4px; margin-bottom: 16px;">
         <div style="color: #ff4500; font-weight: bold; margin-bottom: 4px;">⚠️ Auto-Apply Failed</div>
         <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"><strong>Reason:</strong> ${esc(latestFail.method || 'Unknown Validation Error')}</div>
-        ${latestFail.pdf_path ? `<a href="${latestFail.pdf_path}" target="_blank" style="color: #ff4500; text-decoration: underline; font-size: 12px;">📸 View Screenshot of Failure</a>` : ''}
+        ${latestFail.screenshot_url ? `<a href="${latestFail.screenshot_url}" target="_blank" style="color: #ff4500; text-decoration: underline; font-size: 12px;">📸 View Screenshot of Failure</a>` : (latestFail.pdf_path ? `<a href="${latestFail.pdf_path}" target="_blank" style="color: #4da6ff; text-decoration: underline; font-size: 12px;">📄 View Tailored Resume</a>` : '')}
       </div>
     ` : '';
 
@@ -580,15 +580,20 @@ async function loadApplied() {
         ? `<a href="${a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : '/api/resume'}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 View PDF</a>`
         : '—';
 
-      // Screenshot proof link
-      const SUPABASE_SCREENSHOTS = 'https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots';
+      // Screenshot proof link — uses screenshot_url column (NEVER pdf_path which is the resume)
       let screenshotHtml = '—';
       if (a.app_status === 'submitted' || a.app_status === 'applied') {
-        const proofUrl = `${SUPABASE_SCREENSHOTS}/${a.app_id}.jpeg`;
-        screenshotHtml = `<a href="${proofUrl}" target="_blank" style="color:#00d2a0;text-decoration:none;font-size:12px;" title="View submission proof">📸 Proof</a>`;
+        if (a.screenshot_url) {
+          screenshotHtml = `<a href="${a.screenshot_url}" target="_blank" style="color:#00d2a0;text-decoration:none;font-size:12px;" title="View submission proof">📸 Proof</a>`;
+        } else {
+          screenshotHtml = `<span style="color:#888;font-size:12px;">📸 N/A</span>`;
+        }
       } else if (a.app_status === 'failed') {
-        const errorUrl = a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : `${SUPABASE_SCREENSHOTS}/error_${a.eval_id}.jpeg`;
-        screenshotHtml = `<a href="${errorUrl}" target="_blank" style="color:#ff5252;text-decoration:none;font-size:12px;" title="View failure screenshot">📸 Error</a>`;
+        if (a.screenshot_url) {
+          screenshotHtml = `<a href="${a.screenshot_url}" target="_blank" style="color:#ff5252;text-decoration:none;font-size:12px;" title="View failure screenshot">📸 Error</a>`;
+        } else {
+          screenshotHtml = `<span style="color:#888;font-size:12px;">📸 N/A</span>`;
+        }
       }
 
       return `

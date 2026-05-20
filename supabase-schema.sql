@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS applications (
   evaluation_id BIGINT REFERENCES evaluations(id) ON DELETE CASCADE,
   method TEXT DEFAULT 'manual',
   status TEXT DEFAULT 'submitted',
-  pdf_path TEXT,
+  pdf_path TEXT,          -- URL to tailored resume PDF
+  screenshot_url TEXT,    -- URL to proof/error screenshot (NEVER mixed with pdf_path)
   applied_at TIMESTAMPTZ DEFAULT NOW()
 );
 

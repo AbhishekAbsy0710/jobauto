@@ -6,8 +6,8 @@
 identity:
   name: "Abhishek Raj Pagadala"
   email: ""
-  location: "Switzerland"
-  work_authorization: "EU Blue Card / Swiss Work Permit"
+  location: "Munich, Germany"
+  work_authorization: "EU Blue Card"
   languages:
     - English (Fluent)
     - Hindi (Native)
@@ -50,9 +50,80 @@ compensation:
 
 # Deal breakers — auto-score F on these
 deal_breakers:
+  # Unpaid / commission
   - "Unpaid internship"
   - "Commission only"
   - "No remote option and location outside EU"
+  # Non-IT trades / manual work (German)
+  - "Kosmetik"
+  - "Pflege"
+  - "Pflichtpraktikum"
+  - "Verkäufer"
+  - "Reinigung"
+  - "Sozialarbeiter"
+  - "Krankenpflege"
+  - "Fahrer"
+  - "Lagerlogistik"
+  - "Handwerk"
+  - "Elektriker"
+  - "Sanitär"
+  - "Maler"
+  - "Tischler"
+  - "Schweißer"
+  - "Fotovoltaik"
+  - "Photovoltaik"
+  - "Bürokaufmann"
+  - "Kaufmann"
+  - "Steuerberater"
+  - "Buchhalter"
+  - "Buchhalting"
+  # Marketing / Social media / non-technical
+  - "Reels"
+  - "TikTok"
+  - "Content Creator"
+  - "Influencer"
+  - "Marketing Manager"
+  - "Social Media Manager"
+  - "Community Manager"
+  - "Brand Manager"
+  - "Growth Hacker"
+  - "SEO Manager"
+  - "Performance Marketing"
+  - "Campaign Manager"
+  - "Copywriter"
+  - "Redakteur"
+  - "Journalist"
+  # Sales / BD (non-technical)
+  - "GRC Consultant"
+  - "Business Development"
+  - "Account Executive"
+  - "Account Manager"
+  - "Sales Representative"
+  - "Sales Manager"
+  - "Sales Engineer"  # keep if you want to exclude (comment out if not)
+  - "Customer Success Manager"
+  - "Customer Success"
+  - "Partnership Manager"
+  - "Revenue Operations"
+  # Management / non-IC leadership
+  - "Engineering Manager"
+  - "VP of Engineering"
+  - "Chief Technology Officer"
+  - "Head of Engineering"
+  - "Director of Engineering"
+  - "Tax Lead"
+  - "Tax Manager"
+  - "Tax Consultant"
+  - "Finance Manager"
+  - "CFO"
+  - "HR Manager"
+  - "Recruiter"
+  - "Talent Acquisition"
+  - "People Operations"
+  # Student / junior gating
+  - "Werkstudent"
+  - "Praktikum"
+  - "Praktikant"
 
 # Preferences — boost scoring on these
 preferences:

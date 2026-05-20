@@ -76,6 +76,7 @@ export function initializeDb() {
       status TEXT DEFAULT 'pending',
       cover_letter TEXT,
       pdf_path TEXT,
+      screenshot_url TEXT,
       notes TEXT,
       applied_at TEXT DEFAULT (datetime('now'))
     );
@@ -101,6 +102,10 @@ export function initializeDb() {
   const appCols = database.prepare("PRAGMA table_info(applications)").all().map(c => c.name);
   if (!appCols.includes('pdf_path')) {
     database.exec('ALTER TABLE applications ADD COLUMN pdf_path TEXT');
+  }
+  if (!appCols.includes('screenshot_url')) {
+    database.exec('ALTER TABLE applications ADD COLUMN screenshot_url TEXT');
+    console.log('  🔧 Migrated: added applications.screenshot_url');
   }
 
   // Seed default resume

@@ -62,7 +62,57 @@ async function processJob(job, cvContent, resume, config) {
   try {
     console.log(`  📌 ${job.title} at ${job.company}`);
 
-    // Step 1: AI Evaluation
+    // ============================================
+    // PRE-EVALUATION GATE: Reject irrelevant titles BEFORE spending any Groq tokens
+    // ============================================
+    const titleLower = (job.title || '').toLowerCase();
+    // IT-specific required terms — must match a complete IT phrase, NOT broad words like 'senior'/'lead'
+    const REQUIRED_KEYWORDS = [
+      'software engineer', 'software developer', 'data engineer', 'data analyst', 'data scientist',
+      'analytics engineer', 'devops', 'cloud engineer', 'cloud architect', 'platform engineer',
+      'infrastructure engineer', 'site reliability', 'sre', 'fullstack', 'full stack', 'full-stack',
+      'backend engineer', 'backend developer', 'frontend engineer', 'frontend developer',
+      'ai engineer', 'ml engineer', 'machine learning', 'mlops', 'llm engineer',
+      'tech lead', 'lead engineer', 'staff engineer', 'principal engineer',
+      'solutions architect', 'cloud consultant', 'devops consultant', 'automation engineer',
+      'data platform', 'data infrastructure', 'ki-agent', 'ki engineer',
+      // German IT titles
+      'softwareentwickler', 'softwarearchitekt', 'entwickler', 'entwicklung',
+    ];
+    const INSTANT_REJECT = [
+      // Trades / manual (German)
+      'kosmetik', 'pflege', 'pflichtpraktikum', 'verkäufer', 'verkaufer', 'reinigung',
+      'sozialarbeiter', 'krankenpflege', 'fahrer', 'lagerlogistik', 'handwerk', 'elektriker',
+      'sanitär', 'maler', 'tischler', 'schweißer', 'fotovoltaik', 'photovoltaik',
+      'bürokaufmann', 'kaufmann', 'steuerberater', 'buchhalter', 'finanzberater',
+      'hauswirtschaft', 'küche', 'gastronomie', 'kellner', 'rezeptionist',
+      'praxissemester', 'werkstudent', 'praktikant', 'praktikum',
+      // Marketing / social media
+      'content creator', 'influencer', 'marketing manager', 'social media manager',
+      'community manager', 'brand manager', 'seo manager', 'performance marketing',
+      'campaign manager', 'copywriter', 'redakteur', 'journalist', 'tiktok', 'reels',
+      'mediengestalter', 'webdesigner', 'wordpress',
+      // Sales / BD
+      'sales manager', 'sales representative', 'account executive', 'account manager',
+      'business development', 'customer success manager', 'partnership manager',
+      'revenue operations', 'vertriebspartner', 'handelsvertreter',
+      // Non-IC management
+      'engineering manager', 'vp of engineering', 'head of engineering',
+      'director of engineering', 'head of content', 'head of sales',
+      'tax lead', 'tax manager', 'tax consultant', 'finance manager', 'jurist',
+      'hr manager', 'recruiter', 'talent acquisition', 'people operations', 'personalberater',
+      // Other non-IT
+      'product designer', 'ux designer', 'graphic designer', 'ui designer',
+    ];
+    const hasRequired = REQUIRED_KEYWORDS.some(kw => titleLower.includes(kw));
+    const hasReject = INSTANT_REJECT.some(kw => titleLower.includes(kw));
+    if (hasReject || !hasRequired) {
+      console.log(`  ⚡ Pre-gate rejected: "${job.title}" (irrelevant role — no Groq token spent)`);
+      updateJobStatus(job.id, 'archived');
+      return null;
+    }
+
+
     const aiResult = await evaluateJob(cvContent, job);
     if (!aiResult) {
       console.log('    ⚠️ AI returned no result');
