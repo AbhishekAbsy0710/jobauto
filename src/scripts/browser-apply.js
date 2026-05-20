@@ -180,11 +180,13 @@ Return ONLY valid JSON in one of these formats:
 {"action":"give_up","reason":"why this page cannot be completed"}
 
 Rules:
-- If required fields are empty or showing errors, fill them
+- CRITICAL: If the page text mentions 'flagged as spam', 'flagged as possible spam', 'submission blocked', 'bot', 'automated', 'application limits', 'already applied', or 'rate limit', return give_up immediately — these are PERMANENT blocks that cannot be fixed by clicking again
+- If required fields are empty or showing errors, fill them with the correct value
 - If a dropdown has no selection, select the most appropriate option
-- If it's a bot-detection or captcha page, give_up
-- If it's a multi-step form stuck, click the next/continue button
-- Use text selectors like button:has-text("Submit") or input[name="phone"]`;
+- If it's a captcha page (hCaptcha, reCAPTCHA), give_up
+- If a multi-step form is stuck on a step, click the Next or Continue button
+- Use specific selectors like button:has-text("Submit") or input[name="phone"]
+- Do NOT suggest clicking "Submit your application again" — that is not a real fix for spam blocks`;
 
       const raw = await callGroq(
         'You are a browser automation agent. Return only valid JSON.',
@@ -1482,9 +1484,35 @@ async function main() {
           await page.goto(realApplyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
           await page.waitForTimeout(2000 + Math.random() * 1000);
         } else {
-          // Archive it — ArbeitNow listing with no extractable apply link
-          try { await supabase.from('jobs').update({ status: 'archived', notes: 'ArbeitNow: no external apply URL found' }).eq('id', job.id); } catch(e) {}
-          throw new Error('Job board page — could not find external apply URL (archived)');
+          // Last resort: ask Groq to find the apply link from the live DOM
+          console.log('  🔧 Static extraction failed — asking AI to find apply URL from DOM...');
+          const domLinks = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('a[href]'))
+              .map(a => ({ text: (a.textContent || '').trim().substring(0, 60), href: a.href }))
+              .filter(a => a.href && !a.href.startsWith('javascript') && a.href.length > 10)
+              .slice(0, 30)
+          ).catch(() => []);
+          const pageSnippet = await page.textContent('body').catch(() => '').then(t => t.substring(0, 500));
+          const aiRaw = await callGroq(
+            'You are a browser automation agent. Return only valid JSON.',
+            `A job board page failed to provide an external ATS apply link. Find it.\nPage text: ${pageSnippet}\nAll links on page (JSON): ${JSON.stringify(domLinks)}\n\nReturn JSON: {"url": "the full apply URL"} or {"url": null} if not found. Only return URLs from greenhouse.io, lever.co, ashbyhq.com, workday.com, smartrecruiters.com, jobs.lever.co, or similar real ATS domains.`,
+            'llama-3.3-70b-versatile'
+          );
+          try {
+            const aiResult = JSON.parse(aiRaw);
+            if (aiResult.url && aiResult.url.startsWith('http')) {
+              console.log(`  🤖 AI found apply URL: ${aiResult.url.substring(0, 80)}`);
+              realApplyUrl = aiResult.url;
+              try { await supabase.from('jobs').update({ apply_link: realApplyUrl }).eq('id', job.id); } catch(e) {}
+              await page.goto(realApplyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+              await page.waitForTimeout(2000);
+            }
+          } catch {}
+          if (!realApplyUrl) {
+            // Truly not findable — archive it
+            try { await supabase.from('jobs').update({ status: 'archived', notes: 'ArbeitNow: no external apply URL found after AI analysis' }).eq('id', job.id); } catch(e) {}
+            throw new Error('Job board page — could not find external apply URL (archived)');
+          }
         }
       }
 
@@ -1964,7 +1992,42 @@ async function main() {
 
         appliedJobs.push(job);
       } else {
-        throw new Error('Validation error or missing success confirmation');
+        // No explicit success signal — ask the agent to look at the page and decide
+        console.log('  🔧 No success signal detected — asking agent to evaluate page state...');
+        const pageText = await page.textContent('body').catch(() => '');
+        const currentUrl = page.url();
+        const agentRaw = await callGroq(
+          'You are verifying if a job application was successfully submitted. Return only valid JSON.',
+          `URL: ${currentUrl.substring(0, 120)}\nPage text: ${pageText.substring(0, 800)}\n\nDid the application submit successfully? Return JSON: {"success": true/false, "reason": "brief explanation", "action": "optional next action if not success e.g. click submit button selector"}`,
+          'llama-3.3-70b-versatile'
+        );
+        let agentVerdict = { success: false, reason: 'No response' };
+        try { agentVerdict = JSON.parse(agentRaw); } catch {}
+        console.log(`  🤖 Agent verdict: ${JSON.stringify(agentVerdict)}`);
+        if (agentVerdict.success) {
+          console.log('  ✅ Agent confirmed application successful!');
+          results.applied++;
+          job.needsEmailVerification = needsEmailVerification;
+          job.agentVerified = true;
+          appliedJobs.push(job);
+        } else if (agentVerdict.action) {
+          // Agent suggests one more action, then recheck
+          console.log(`  🤖 Agent suggests: ${agentVerdict.action}`);
+          try { await page.locator(agentVerdict.action).first().click({ timeout: 5000, force: true }); } catch {}
+          await page.waitForTimeout(3000);
+          const retryText = await page.textContent('body').catch(() => '').then(t => t.toLowerCase());
+          const retrySuccess = retryText.includes('thank you') || retryText.includes('application received') || retryText.includes('successfully submitted') || retryText.includes('applied successfully');
+          if (retrySuccess) {
+            console.log('  ✅ Application confirmed after agent-suggested action!');
+            results.applied++;
+            job.needsEmailVerification = needsEmailVerification;
+            appliedJobs.push(job);
+          } else {
+            throw new Error(`Validation error or missing success confirmation (agent: ${agentVerdict.reason})`);
+          }
+        } else {
+          throw new Error(`Validation error or missing success confirmation (agent: ${agentVerdict.reason})`);
+        }
       }
 
     } catch (e) {
