@@ -1105,7 +1105,9 @@ async function fillField(page, selector, value) {
 }
 
 // ============================================
-// DYNAMIC RESUME TAILORING
+// DYNAMIC RESUME TAILORING — APPEND ONLY
+// Nothing is replaced. All original content is preserved verbatim.
+// Only appends: summary sentences, experience bullets, a Tailored Skills row.
 // ============================================
 async function generateTailoredResume(job, context, supabase, fallbackPath) {
   const baseJsonPath = join(ROOT, 'resume', 'base-resume.json');
@@ -1114,89 +1116,120 @@ async function generateTailoredResume(job, context, supabase, fallbackPath) {
   console.log(`  🤖 Tailoring resume for ${job.company} - ${job.title}...`);
   const baseJsonStr = readFileSync(baseJsonPath, 'utf8');
 
-  const sysPrompt = `You are an expert technical recruiter. Your task is to tailor the candidate's resume for the target Job Description to maximize ATS match.
+  const sysPrompt = `You are an expert technical recruiter. APPEND relevant content to the candidate's resume to maximise ATS match. You are STRICTLY FORBIDDEN from changing, deleting, or rewriting any existing content.
 
-CRITICAL RULES — NEVER violate these:
-- You MUST NOT change any job title, company name, date, or bullet point in the candidate's work experience section.
-- You MUST NOT invent, add, or remove any work experience entries.
-- You MUST NOT change the candidate's education, certifications, or contact information.
-- The ONLY things you are allowed to change are: the professional headline (title), the summary paragraph, and the skills list.
+RULES:
+- Do NOT modify existing bullets, titles, dates, companies, education, certifications, or contact info.
+- Do NOT fabricate experience the candidate does not have.
+- Only add content that is a truthful extension of existing experience.
 
-You are ONLY allowed to output three things in JSON format:
-1. "title": A new professional headline that closely matches the target job title (e.g. "Senior Data Engineer" or "Cloud Platform Engineer"). This goes at the top of the resume as the candidate's current professional title — it does NOT modify any job entry.
-2. "summary": A tailored professional summary (3-4 sentences) that highlights the candidate's existing experience relevant to this job. Do NOT invent new experience.
-3. "new_skills": An array of 3-8 relevant technical skills/keywords from the Job Description that the candidate realistically possesses based on their base resume.
-
-Return ONLY valid JSON:
+Return ONLY valid JSON with these keys:
 {
-  "title": "string",
-  "summary": "string",
-  "new_skills": ["string"]
-}`;
+  "title": "Updated headline matching the job title",
+  "summary_append": "1-2 sentences to APPEND (not replace) to the existing summary paragraph, linking candidate's experience to this specific role",
+  "experience_append": {
+    "CompanyName": ["new bullet to append", "optional second bullet"]
+  },
+  "new_skills": ["skill1", "skill2"]
+}
 
-  const userPrompt = `Job Title: ${job.title}\nJob Company: ${job.company}\nJob Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nCandidate's Base Resume:\n${baseJsonStr}`;
+- "experience_append": only include the 1-2 most relevant companies. Each bullet must be a truthful, specific extension of work already described (e.g. if Terraform is listed, add a JD-relevant Terraform bullet).
+- "new_skills": 3-8 keywords from the JD the candidate realistically has.
+- Return ONLY JSON — no explanation.`;
 
+  const userPrompt = `Job Title: ${job.title}\nCompany: ${job.company}\nJob Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nCandidate Base Resume JSON:\n${baseJsonStr}`;
+
+  // Deep-clone base so original is never mutated
   let tailoredJson = JSON.parse(baseJsonStr);
-  
+  let changesMadeArr = [];
+
   try {
-    console.log(`  🔄 Generating tailored Summary, Title, and Skills...`);
+    console.log(`  🔄 Generating append-only tailored content...`);
     const res = await callGroq(sysPrompt, userPrompt);
     const match = res.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("No JSON found");
-    
-    const patchJson = JSON.parse(match[0]);
-    
-    if (Object.keys(patchJson).length === 0) {
-      throw new Error("AI returned empty JSON (likely rate limited)");
-    }
-    
-    let changesMadeArr = [];
-    
-    // Apply patches safely
-    if (patchJson.title && patchJson.title !== tailoredJson.personal.title) {
-        tailoredJson.personal.title = patchJson.title;
-        changesMadeArr.push(`Updated title to '${patchJson.title}'`);
-    }
-    if (patchJson.summary && patchJson.summary !== tailoredJson.summary) {
-        tailoredJson.summary = patchJson.summary;
-        changesMadeArr.push('Tailored summary');
-    }
-    if (patchJson.new_skills && Array.isArray(patchJson.new_skills) && patchJson.new_skills.length > 0) {
-        tailoredJson.skills['Tailored Skills'] = patchJson.new_skills.join(', ');
-        changesMadeArr.push(`Added ${patchJson.new_skills.length} targeted skills`);
-    }
-    
-    tailoredJson.changes_made = changesMadeArr.length > 0 ? changesMadeArr.join(', ') : 'Base Resume (No modifications)';
-    
-    if (changesMadeArr.length === 0) {
-      throw new Error("No meaningful changes were made by AI");
+    if (!match) throw new Error('No JSON found in response');
+
+    const patch = JSON.parse(match[0]);
+    if (Object.keys(patch).length === 0) throw new Error('AI returned empty JSON');
+
+    // 1. Headline — update only (visual, not core data)
+    if (patch.title && patch.title !== tailoredJson.personal.title) {
+      tailoredJson.personal.title = patch.title;
+      changesMadeArr.push(`Headline → "${patch.title}"`);
     }
 
-    // Evaluate the new tailored resume
+    // 2. Summary — APPEND sentences, never replace
+    if (patch.summary_append && patch.summary_append.trim()) {
+      const append = patch.summary_append.trim();
+      // Avoid duplicating if already appended (idempotent)
+      if (!tailoredJson.summary.includes(append.substring(0, 30))) {
+        tailoredJson.summary = tailoredJson.summary.trimEnd() + ' ' + append;
+        changesMadeArr.push('Appended to summary');
+      }
+    }
+
+    // 3. Experience — APPEND bullets, never replace or reorder
+    if (patch.experience_append && typeof patch.experience_append === 'object') {
+      for (const [company, newBullets] of Object.entries(patch.experience_append)) {
+        if (!Array.isArray(newBullets) || newBullets.length === 0) continue;
+        const expEntry = tailoredJson.experience.find(
+          e => e.company.toLowerCase().includes(company.toLowerCase()) ||
+               company.toLowerCase().includes(e.company.toLowerCase())
+        );
+        if (!expEntry) continue;
+        const added = [];
+        for (const bullet of newBullets) {
+          const b = bullet.trim();
+          if (!b) continue;
+          // Don't add if semantically already covered (simple dedup)
+          const alreadyExists = expEntry.bullets.some(
+            existing => existing.toLowerCase().includes(b.substring(0, 25).toLowerCase())
+          );
+          if (!alreadyExists) {
+            expEntry.bullets.push(b);
+            added.push(b.substring(0, 50));
+          }
+        }
+        if (added.length > 0) changesMadeArr.push(`+${added.length} bullet(s) @ ${expEntry.company}`);
+      }
+    }
+
+    // 4. Skills — APPEND a new "Tailored Skills" row, never modify existing rows
+    if (patch.new_skills && Array.isArray(patch.new_skills) && patch.new_skills.length > 0) {
+      tailoredJson.skills['Tailored for Role'] = patch.new_skills.join(', ');
+      changesMadeArr.push(`+${patch.new_skills.length} tailored skill keywords`);
+    }
+
+    tailoredJson.changes_made = changesMadeArr.length > 0
+      ? changesMadeArr.join(' | ')
+      : 'Base Resume (No modifications)';
+
+    if (changesMadeArr.length === 0) throw new Error('No meaningful changes made');
+
+    // 5. ATS score
     console.log(`  📊 Evaluating tailored resume...`);
-    const evalSysPromptJson = `You are a strict ATS (Applicant Tracking System). Compare the Candidate's Resume against the Job Description. Return a JSON object with a single key "score" containing an integer from 0 to 100 representing the match percentage.`;
-    const evalUserPrompt = `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume JSON:\n${JSON.stringify(tailoredJson)}`;
-    const scoreRes = await callGroq(evalSysPromptJson, evalUserPrompt, 'llama-3.1-8b-instant');
+    const scoreRes = await callGroq(
+      'You are a strict ATS. Compare resume to JD. Return JSON: {"score": integer 0-100}',
+      `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume:\n${JSON.stringify(tailoredJson)}`,
+      'llama-3.1-8b-instant'
+    );
     let score = 0;
     try {
-        const scoreMatch = scoreRes.match(/\{[\s\S]*\}/);
-        if (scoreMatch) {
-            score = JSON.parse(scoreMatch[0]).score || 0;
-        }
-    } catch(err) {
-        score = parseInt(scoreRes.replace(/\D/g, '')) || 0;
-    }
+      const sm = scoreRes.match(/\{[\s\S]*\}/);
+      if (sm) score = JSON.parse(sm[0]).score || 0;
+    } catch { score = parseInt(scoreRes.replace(/\D/g, '')) || 0; }
     console.log(`  📈 ATS Score: ${score}%`);
-    
+
   } catch(e) {
-    console.log(`  ⚠️ Failed to generate tailored resume sections (${e.message}), using base.`);
+    console.log(`  ⚠️ Tailoring failed (${e.message}), using base resume.`);
     return { pdfPath: fallbackPath, publicUrl: null, changes: 'Base Resume (No modifications)' };
   }
 
+  // Build PDF from tailored JSON
   const templateStr = readFileSync(join(ROOT, 'src', 'scripts', 'resume-template.html'), 'utf8');
-  
-  const skillsHtml = Object.entries(tailoredJson.skills || {}).map(([cat, sk]) => 
-     `<div class="skill-category">${cat}</div><div>${sk}</div>`
+
+  const skillsHtml = Object.entries(tailoredJson.skills || {}).map(([cat, sk]) =>
+    `<div class="skill-category">${cat}</div><div>${sk}</div>`
   ).join('');
 
   const expHtml = (tailoredJson.experience || []).map(exp => `
@@ -1240,20 +1273,21 @@ Return ONLY valid JSON:
 
   let publicUrl = null;
   try {
-     const pdfBuffer = readFileSync(outputPath);
-     const fileName = `resume_${job.id}_${Date.now()}.pdf`;
-     await supabase.storage.from('screenshots').upload(fileName, pdfBuffer, { upsert: true, contentType: 'application/pdf' });
-     publicUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${fileName}`;
-     console.log(`  📎 Tailored resume generated & uploaded`);
+    const pdfBuffer = readFileSync(outputPath);
+    const fileName = `resume_${job.id}_${Date.now()}.pdf`;
+    await supabase.storage.from('screenshots').upload(fileName, pdfBuffer, { upsert: true, contentType: 'application/pdf' });
+    publicUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${fileName}`;
+    console.log(`  📎 Tailored resume generated & uploaded`);
   } catch(e) {
-     console.error('  ⚠️ Failed to upload tailored resume:', e.message);
+    console.error('  ⚠️ Failed to upload tailored resume:', e.message);
   }
 
-  return { pdfPath: outputPath, publicUrl, changes: tailoredJson.changes_made || 'Tailored resume to match job description' };
+  return { pdfPath: outputPath, publicUrl, changes: tailoredJson.changes_made || 'Tailored' };
 }
 
 // ============================================
 // MAIN
+
 // ============================================
 async function main() {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
