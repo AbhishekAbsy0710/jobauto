@@ -68,7 +68,9 @@ function isDealBreaker(job, dealBreakers = []) {
 
 // ── Upsert job + optional evaluation into Supabase ───────────────────────────
 async function upsertJob(job, evaluation) {
-  const status = evaluation?.action || 'new';
+  // When Groq eval is null (rate-limited/failed), default to auto_queue
+  // so the apply pipeline still picks up the job rather than orphaning it.
+  const status = evaluation?.action || 'auto_queue';
 
   // Only include columns that exist in the Supabase jobs table schema:
   // id, title, company, location, description, apply_link, platform,
@@ -226,6 +228,17 @@ Deal breakers: ${dealBreakers.join(', ')}
   console.log(`   Skipped:      ${results.skipped} (low score / deal-breaker)`);
   console.log(`   Errors:       ${results.errors}`);
   console.log('');
+
+  // Promote any 'new' status jobs (from previous runs) to auto_queue
+  // so the backlog doesn't sit idle
+  const { data: promoted, error: promErr } = await supabase
+    .from('jobs')
+    .update({ status: 'auto_queue', updated_at: new Date().toISOString() })
+    .eq('status', 'new')
+    .select('id');
+  if (!promErr && promoted?.length > 0) {
+    console.log(`   ♻️  Promoted ${promoted.length} existing 'new' jobs → auto_queue`);
+  }
 }
 
 main().catch(e => { console.error('Fatal:', e); process.exit(1); });
