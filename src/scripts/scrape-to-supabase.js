@@ -70,24 +70,28 @@ function isDealBreaker(job, dealBreakers = []) {
 async function upsertJob(job, evaluation) {
   const status = evaluation?.action || 'new';
 
+  // Only include columns that exist in the Supabase jobs table schema:
+  // id, title, company, location, description, apply_link, platform,
+  // remote, tags, status, source_id, scraped_at, updated_at, proof_url,
+  // tailored_resume_url, applied_at
   const jobRow = {
-    external_id: job.external_id,
+    source_id: job.external_id,          // unique identifier per scraper
     title: job.title,
-    company: job.company,
+    company: job.company || '',
     platform: job.platform || 'unknown',
-    apply_link: job.apply_link,
-    apply_type: job.apply_type || 'external',
+    apply_link: job.apply_link || '',
     description: (job.description || '').slice(0, 8000),
     location: job.location || '',
     tags: Array.isArray(job.tags) ? job.tags.filter(Boolean) : [],
     remote: job.remote ?? false,
     status,
     scraped_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
 
   const { data: inserted, error } = await supabase
     .from('jobs')
-    .upsert(jobRow, { onConflict: 'external_id', ignoreDuplicates: false })
+    .upsert(jobRow, { onConflict: 'source_id', ignoreDuplicates: false })
     .select('id')
     .single();
 
@@ -98,18 +102,28 @@ async function upsertJob(job, evaluation) {
     return null;
   }
 
-  // Insert evaluation if we have one
+  // Insert evaluation if we have one (evaluations table real columns:
+  // id, job_id, letter_grade, weighted_score, match_percentage, archetype,
+  // action, priority, risk_level, reason, matching_skills, missing_skills,
+  // resume_improvements, dimension_scores, star_stories, evaluated_at)
   if (evaluation && inserted?.id) {
-    await supabase.from('evaluations').upsert({
+    await supabase.from('evaluations').insert({
       job_id: inserted.id,
       letter_grade: evaluation.grade,
       weighted_score: evaluation.score / 10,
       match_percentage: evaluation.score,
       action: evaluation.action,
+      priority: evaluation.grade === 'A' ? 'high' : evaluation.grade === 'B' ? 'medium' : 'low',
+      risk_level: 'low',
       reason: evaluation.reason,
       archetype: 'AI-Evaluated',
+      matching_skills: [],
+      missing_skills: [],
+      resume_improvements: [],
+      dimension_scores: {},
+      star_stories: [],
       evaluated_at: new Date().toISOString(),
-    }, { onConflict: 'job_id', ignoreDuplicates: false }).catch(() => {});
+    }).catch(() => {}); // ignore duplicate inserts
   }
 
   return inserted?.id;
