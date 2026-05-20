@@ -1364,7 +1364,7 @@ async function main() {
           await page.waitForTimeout(2000 + Math.random() * 1000);
         } else {
           // Archive it — ArbeitNow listing with no extractable apply link
-          await supabase.from('jobs').update({ status: 'archived', notes: 'ArbeitNow: no external apply URL found' }).eq('id', job.id).catch(() => {});
+          try { await supabase.from('jobs').update({ status: 'archived', notes: 'ArbeitNow: no external apply URL found' }).eq('id', job.id); } catch(e) {}
           throw new Error('Job board page — could not find external apply URL (archived)');
         }
       }
@@ -1532,7 +1532,7 @@ async function main() {
                 try { execSync(`osascript -e 'display notification "Check email: code needed for ${safeCompany}" with title "JobAuto: OTP Required" sound name "Glass"'`); } catch(e) {}
               }).catch(() => {});
               process.stdout.write('\x07'); // terminal bell
-              console.log(`  ⏳ Waiting up to 10 min — run: echo "CODE" > /Users/abhishek/Documents/jobauto/security_code.txt`);
+              console.log(`  ⏳ Gmail OTP watcher active — waiting up to 10 min for code from ${companyName}...`);
               
               let code = '';
               const securityDeadline = Date.now() + 10 * 60 * 1000; // 10-minute timeout

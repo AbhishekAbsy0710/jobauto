@@ -18,8 +18,33 @@ resume/tailored_*.pdf
 
 # Test/temp files
 test-*.js
+test.js
 test.jpg
 check-*.mjs
 apply_log.txt
-error_*.jpeg
 database.sqlite
+debug-*.js
+parse-*.js
+*.cjs
+
+# Pipeline debug artifacts (generated at runtime)
+error_*.jpeg
+error_*.html
+error_*.png
+proof_*.jpeg
+proof_*.png
+debug_*.html
+debug_*.png
+debug_*.jpg
+datadog_*.html
+datadog_*.png
+body_text.txt
+dry_run_output.txt
+apply_test.log
+auto_apply.log
+WAITING_FOR_SECURITY_CODE.txt
+security_code.txt
+
+# Gmail OAuth
+gmail_credentials.json
+gmail_token.json
