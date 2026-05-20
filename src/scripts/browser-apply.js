@@ -120,6 +120,125 @@ async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant'
 }
 
 // ============================================
+// SELF-HEALING AGENT LOOP
+// When a page action fails, capture DOM → ask Groq → execute fix → retry
+// ============================================
+async function healAndRetry(page, context, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`  🔧 Heal attempt ${attempt}/${maxAttempts} — analysing page...`);
+    try {
+      // 1. Capture current state
+      const url = page.url();
+      const bodyText = await page.textContent('body').catch(() => '');
+      const visibleErrors = await page.evaluate(() => {
+        const sels = [
+          '.error', '.error-message', '[aria-invalid="true"]', '.alert-danger',
+          '.validation-error', '.parsley-error', '[role="alert"]', '.invalid-feedback'
+        ];
+        return sels.flatMap(s => Array.from(document.querySelectorAll(s)))
+          .filter(el => el.offsetParent !== null)
+          .map(el => el.innerText.trim())
+          .filter(t => t.length > 0)
+          .slice(0, 5)
+          .join(' | ');
+      }).catch(() => '');
+
+      // 2. Get simplified DOM snapshot (inputs + buttons only, truncated)
+      const domSnapshot = await page.evaluate(() => {
+        const fields = [];
+        document.querySelectorAll('input:not([type=hidden]),select,textarea,button').forEach(el => {
+          if (!el.offsetParent) return;
+          const label = el.labels?.[0]?.innerText ||
+            el.closest('[class*=field],[class*=form-group],div')?.querySelector('label')?.innerText ||
+            el.getAttribute('placeholder') || el.getAttribute('aria-label') || el.name || el.id || '';
+          fields.push({
+            tag: el.tagName.toLowerCase(),
+            type: el.type || '',
+            name: el.name || el.id || '',
+            label: label.trim().substring(0, 60),
+            value: (el.type === 'password' ? '***' : (el.value || '').substring(0, 30)),
+            required: el.required,
+          });
+        });
+        return fields.slice(0, 40);
+      }).catch(() => []);
+
+      // 3. Ask Groq what to do
+      const healPrompt = `You are controlling a Playwright browser applying to a job.
+Current URL: ${url.substring(0, 120)}
+Visible errors: ${visibleErrors || 'none'}
+Page text snippet: ${bodyText.substring(0, 600)}
+Visible form fields (JSON): ${JSON.stringify(domSnapshot)}
+
+The last action failed. Analyse what went wrong and return a single JSON action to recover.
+Return ONLY valid JSON in one of these formats:
+{"action":"fill","selector":"CSS or text selector","value":"value to type"}
+{"action":"click","selector":"CSS or text selector"}
+{"action":"select","selector":"CSS selector","value":"option text"}
+{"action":"scroll_and_click","selector":"CSS or text selector"}
+{"action":"wait","ms":2000}
+{"action":"give_up","reason":"why this page cannot be completed"}
+
+Rules:
+- If required fields are empty or showing errors, fill them
+- If a dropdown has no selection, select the most appropriate option
+- If it's a bot-detection or captcha page, give_up
+- If it's a multi-step form stuck, click the next/continue button
+- Use text selectors like button:has-text("Submit") or input[name="phone"]`;
+
+      const raw = await callGroq(
+        'You are a browser automation agent. Return only valid JSON.',
+        healPrompt,
+        'llama-3.3-70b-versatile'
+      );
+
+      let action;
+      try { action = JSON.parse(raw); } catch { continue; }
+
+      console.log(`  🤖 Heal action: ${JSON.stringify(action)}`);
+
+      if (action.action === 'give_up') {
+        console.log(`  🛑 Agent says give up: ${action.reason}`);
+        return false;
+      }
+
+      // 4. Execute the action
+      if (action.action === 'fill' && action.selector && action.value !== undefined) {
+        const el = await page.locator(action.selector).first().catch(() => null);
+        if (el) { await el.fill(String(action.value), { timeout: 5000 }).catch(() => {}); }
+      } else if (action.action === 'click' && action.selector) {
+        await page.locator(action.selector).first().click({ timeout: 5000, force: true }).catch(() => {});
+      } else if (action.action === 'select' && action.selector && action.value) {
+        await page.locator(action.selector).first().selectOption({ label: action.value }, { timeout: 5000 }).catch(
+          () => page.locator(action.selector).first().selectOption(action.value, { timeout: 3000 }).catch(() => {})
+        );
+      } else if (action.action === 'scroll_and_click' && action.selector) {
+        const el = await page.locator(action.selector).first().catch(() => null);
+        if (el) { await el.scrollIntoViewIfNeeded().catch(() => {}); await el.click({ force: true }).catch(() => {}); }
+      } else if (action.action === 'wait') {
+        await page.waitForTimeout(action.ms || 2000);
+      }
+
+      await page.waitForTimeout(1500);
+
+      // 5. Check if errors cleared or page progressed
+      const newErrors = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('.error,.error-message,[aria-invalid="true"],[role="alert"]'))
+          .filter(el => el.offsetParent !== null && el.innerText.trim().length > 0).length;
+      }).catch(() => 1);
+
+      if (newErrors === 0) {
+        console.log(`  ✅ Heal attempt ${attempt} cleared errors!`);
+        return true;  // caller should retry the submit
+      }
+    } catch (healErr) {
+      console.log(`  ⚠️ Heal attempt ${attempt} error: ${healErr.message}`);
+    }
+  }
+  return false; // exhausted all attempts
+}
+
+// ============================================
 // STATIC ANSWER CACHE — skips Groq for common fields
 // ============================================
 const STATIC_ANSWERS = [
@@ -1644,9 +1763,19 @@ async function main() {
          throw new Error('Captcha Blocked Submission');
       }
 
-      // --- Spam/bot block detection ---
+      // --- Spam/bot block detection — try to self-heal before giving up ---
       if (postSubmitLower.includes('flagged as possible spam') || postSubmitLower.includes('flagged as spam') || postSubmitLower.includes('submission was blocked') || postSubmitLower.includes('robot') || postSubmitLower.includes('automated submission')) {
-        throw new Error('Submission blocked as spam/bot by ATS');
+        console.log('  🚨 Bot/spam block detected — invoking self-healing agent...');
+        const healed = await healAndRetry(page, job);
+        if (!healed) throw new Error('Submission blocked as spam/bot by ATS (heal failed)');
+        // Re-evaluate page after healing
+        const healedText = await page.textContent('body').catch(() => '').then(t => t.toLowerCase());
+        if (healedText.includes('thank you') || healedText.includes('application received') || healedText.includes('successfully submitted')) {
+          console.log('  ✅ Healed — application confirmed successful!');
+          // fall through to success path below
+        } else {
+          throw new Error('Submission blocked as spam/bot by ATS (heal did not resolve)');
+        }
       }
       
       // --- SUCCESS requires an EXPLICIT positive signal ---
@@ -1703,6 +1832,23 @@ async function main() {
         const html = await page.content();
         writeFileSync('datadog_error.html', html);
         await page.screenshot({ path: 'datadog_error_screenshot.png', fullPage: true });
+        // --- Self-healing: try to fix validation errors automatically ---
+        console.log('  🔧 Validation errors detected — invoking self-healing agent...');
+        const healed = await healAndRetry(page, job);
+        if (healed) {
+          // Re-check errors after healing
+          hasErrors = false;
+          for (const sel of errorSelectors) {
+            const el = await page.$(sel).catch(() => null);
+            if (el && await el.isVisible().catch(() => false)) {
+              const errText = await el.textContent().catch(() => '');
+              if (errText && errText.trim().length > 0 && !errText.toLowerCase().includes('success')) {
+                hasErrors = true; break;
+              }
+            }
+          }
+          if (!hasErrors) console.log('  ✅ Validation errors resolved by self-healing agent!');
+        }
       }
       
       const needsEmailVerification = postSubmitLower.includes('check your email') || 
