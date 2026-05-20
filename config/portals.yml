@@ -1,11 +1,11 @@
 # ============================================
 # JobAuto — Career Portal Scanner Configuration
-# 45+ European & Global Tech Companies
+# 130+ European & Global Tech Companies
 # ============================================
 
 # Greenhouse boards (boards.greenhouse.io/{board_id})
 greenhouse:
-  # AI Labs
+  # ── AI Labs ────────────────────────────────
   - board_id: anthropic
     name: Anthropic
   - board_id: openai
@@ -26,7 +26,20 @@ greenhouse:
     name: ElevenLabs
   - board_id: deepgram
     name: Deepgram
-  # DevTools & Platforms
+  - board_id: perplexityai
+    name: Perplexity AI
+  - board_id: xai
+    name: xAI
+  - board_id: scale
+    name: Scale AI
+  - board_id: adept
+    name: Adept AI
+  - board_id: runway
+    name: Runway ML
+  - board_id: together
+    name: Together AI
+
+  # ── DevTools & Platforms ───────────────────
   - board_id: vercel
     name: Vercel
   - board_id: retool
@@ -45,11 +58,66 @@ greenhouse:
     name: GitLab
   - board_id: sentry
     name: Sentry
-  # European Tech
+  - board_id: circleci
+    name: CircleCI
+  - board_id: daggerio
+    name: Dagger
+  - board_id: pulumi
+    name: Pulumi
+  - board_id: cockroachlabs
+    name: CockroachDB
+  - board_id: clickhouse
+    name: ClickHouse
+  - board_id: planetscale
+    name: PlanetScale
+  - board_id: neon
+    name: Neon
+  - board_id: render
+    name: Render
+  - board_id: fly
+    name: Fly.io
+
+  # ── Data & Analytics ───────────────────────
+  - board_id: dbt
+    name: dbt Labs
+  - board_id: airbyte
+    name: Airbyte
+  - board_id: fivetran
+    name: Fivetran
+  - board_id: starburst
+    name: Starburst
+  - board_id: greatexpectations
+    name: Great Expectations
+  - board_id: montecarlodata
+    name: Monte Carlo
+
+  # ── Security ───────────────────────────────
+  - board_id: wiz
+    name: Wiz
+  - board_id: orca
+    name: Orca Security
+  - board_id: lacework
+    name: Lacework
+  - board_id: gitguardian
+    name: GitGuardian
+
+  # ── Finance & Fintech ──────────────────────
+  - board_id: coinbase
+    name: Coinbase
+  - board_id: brex
+    name: Brex
+  - board_id: navan
+    name: Navan
+  - board_id: ramp
+    name: Ramp
+  - board_id: moderntreasury
+    name: Modern Treasury
+
+  # ── European Tech ──────────────────────────
   - board_id: n8n
     name: n8n (Berlin)
   - board_id: factorial
-    name: Factorial
+    name: Factorial (Barcelona)
   - board_id: personio
     name: Personio (Munich)
   - board_id: celonis
@@ -62,29 +130,58 @@ greenhouse:
     name: Delivery Hero (Berlin)
   - board_id: wefox
     name: Wefox (Berlin)
-  - board_id: gorillasapp
-    name: Gorillas (Berlin)
-  # Swiss Companies
+  - board_id: sumup
+    name: SumUp (Berlin)
+  - board_id: taxfix
+    name: Taxfix (Berlin)
+  - board_id: moonfare
+    name: Moonfare (Berlin)
+  - board_id: solarisbank
+    name: Solaris (Berlin)
+  - board_id: clark
+    name: Clark (Frankfurt)
+  - board_id: commercetools
+    name: Commercetools (Munich)
+  - board_id: adjust
+    name: Adjust (Berlin)
+  - board_id: picsart
+    name: PicsArt (Berlin)
+
+  # ── Swiss Companies ────────────────────────
   - board_id: scandit
     name: Scandit (Zurich)
   - board_id: numbrs
     name: Numbrs (Zurich)
   - board_id: abb
-    name: ABB
-  # Finance & Enterprise
-  - board_id: coinbase
-    name: Coinbase
-  - board_id: brex
-    name: Brex
-  - board_id: navan
-    name: Navan
-  - board_id: dbt
-    name: dbt Labs
-  - board_id: airbyte
-    name: Airbyte
+    name: ABB (Zurich)
+  - board_id: beekeeper
+    name: Beekeeper (Zurich)
+  - board_id: frontify
+    name: Frontify (St. Gallen)
+
+  # ── Netherlands ────────────────────────────
+  - board_id: messagebird
+    name: MessageBird (Amsterdam)
+  - board_id: adyen
+    name: Adyen (Amsterdam)
+  - board_id: mollie
+    name: Mollie (Amsterdam)
+
+  # ── Remote-first ───────────────────────────
+  - board_id: remote
+    name: Remote.com
+  - board_id: deel
+    name: Deel
+  - board_id: loom
+    name: Loom
+  - board_id: miro
+    name: Miro
+  - board_id: notion
+    name: Notion
 
 # Lever boards (jobs.lever.co/{company})
 lever:
+  # ── DevOps / Cloud ─────────────────────────
   - company_id: cloudflare
     name: Cloudflare
   - company_id: netlify
@@ -95,17 +192,52 @@ lever:
     name: Stripe
   - company_id: databricks
     name: Databricks
+  - company_id: aiven
+    name: Aiven (Helsinki)
+  - company_id: weaviate
+    name: Weaviate (Amsterdam)
+  - company_id: prefect
+    name: Prefect
+  - company_id: dagster-labs
+    name: Dagster
+  - company_id: teleport
+    name: Teleport
+  - company_id: infisical
+    name: Infisical
+
+  # ── European ───────────────────────────────
   - company_id: spotify
     name: Spotify (Stockholm)
   - company_id: soundcloud
     name: SoundCloud (Berlin)
   - company_id: ecosia
     name: Ecosia (Berlin)
+  - company_id: gorillas
+    name: Gorillas (Berlin)
+  - company_id: jimdo
+    name: Jimdo (Hamburg)
+  - company_id: blinkist
+    name: Blinkist (Berlin)
+  - company_id: izettle
+    name: iZettle (Stockholm)
+  - company_id: klarna
+    name: Klarna (Stockholm)
+
+  # ── AI-native ─────────────────────────────
+  - company_id: cohere
+    name: Cohere
+  - company_id: qdrant
+    name: Qdrant
+  - company_id: chroma
+    name: Chroma
+  - company_id: mistral-ai
+    name: Mistral AI (Paris)
 
 # Ashby boards (jobs.ashbyhq.com/{company})
 ashby:
+  # ── Developer Tools ────────────────────────
   - company_id: langfuse
-    name: Langfuse
+    name: Langfuse (Berlin)
   - company_id: linear
     name: Linear
   - company_id: resend
@@ -118,8 +250,55 @@ ashby:
     name: Cal.com
   - company_id: plane
     name: Plane
+  - company_id: turso
+    name: Turso
+  - company_id: unkey
+    name: Unkey
+  - company_id: upstash
+    name: Upstash
+  - company_id: trigger
+    name: Trigger.dev
+  - company_id: inngest
+    name: Inngest
+  - company_id: workos
+    name: WorkOS
+  - company_id: stytch
+    name: Stytch
+  - company_id: clerk
+    name: Clerk
 
-# Filter scanned jobs by these keywords
+  # ── AI / LLM ───────────────────────────────
+  - company_id: braintrust
+    name: Braintrust
+  - company_id: humanloop
+    name: Humanloop (London)
+  - company_id: portkey
+    name: Portkey
+  - company_id: helicone
+    name: Helicone
+  - company_id: traceloop
+    name: Traceloop
+
+  # ── European Startups ──────────────────────
+  - company_id: zitadel
+    name: ZITADEL (Switzerland)
+  - company_id: meltwater
+    name: Meltwater (Oslo)
+  - company_id: proxmox
+    name: Proxmox (Vienna)
+
+# ── Deal-breakers (these will be auto-skipped) ─────────────────────────────
+deal_breakers:
+  - require visa sponsorship to work in
+  - US citizenship required
+  - active security clearance
+  - no remote
+  - must be located in office
+  - 100% on-site
+  - relocation required
+  - defense contractor
+
+# ── Filter: only pick up these roles from portals ──────────────────────────
 filter_keywords:
   - DevOps
   - Cloud
@@ -127,6 +306,7 @@ filter_keywords:
   - Platform
   - Backend
   - Full Stack
+  - FullStack
   - Data Engineer
   - AI Engineer
   - ML Engineer
@@ -135,3 +315,9 @@ filter_keywords:
   - Software Engineer
   - Data Analyst
   - Data Scientist
+  - Solutions Engineer
+  - Systems Engineer
+  - Reliability Engineer
+  - Engineering Manager
+  - Staff Engineer
+  - Principal Engineer

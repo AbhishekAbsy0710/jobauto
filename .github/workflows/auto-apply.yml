@@ -56,7 +56,21 @@ jobs:
       - name: Write Gmail token
         run: echo '${{ secrets.GMAIL_TOKEN }}' > gmail_token.json
 
-      # ── 6. Start Gmail OTP watcher in background ─────────────────────────────
+      # ── 6. Scrape fresh jobs into Supabase (runs before apply) ───────────────
+      # Only runs on workflow_dispatch (manual) so it doesn't conflict with
+      # the dedicated scrape-jobs.yml which runs 15 min before this.
+      - name: Scrape jobs (manual trigger only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          echo "🔍 Running scraper (manual trigger — fetching fresh jobs first)..."
+          node src/scripts/scrape-to-supabase.js || echo "⚠️ Scrape had errors — continuing with existing queue"
+
+      # ── 7. Start Gmail OTP watcher in background ─────────────────────────────
       - name: Start Gmail OTP watcher
         run: |
           python3 src/scripts/gmail-otp-watcher.py > /tmp/otp-watcher.log 2>&1 &
@@ -64,7 +78,7 @@ jobs:
           echo "✅ Gmail OTP watcher started (PID: $!)"
           sleep 3  # give it time to authenticate
 
-      # ── 7. Run the apply pipeline ─────────────────────────────────────────────
+      # ── 8. Run the apply pipeline ─────────────────────────────────────────────
       - name: Run browser-apply
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -73,12 +87,12 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: node src/scripts/browser-apply.js
 
-      # ── 8. Show OTP watcher logs ──────────────────────────────────────────────
+      # ── 9. Show OTP watcher logs ──────────────────────────────────────────────
       - name: Show OTP watcher log
         if: always()
         run: cat /tmp/otp-watcher.log || true
 
-      # ── 9. Upload screenshots/evidence as artifacts ───────────────────────────
+      # ── 10. Upload screenshots/evidence as artifacts ───────────────────────────
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4

@@ -1045,24 +1045,34 @@ async function fillBaseFields(page, resumePath) {
 
   // Try to click any initial "Apply" buttons if it's Lever/Generic
   const applyBtns = await page.$$('a:has-text("Apply for this job"), button:has-text("Apply"), a.apply-button, .apply-btn');
-  for (const btn of applyBtns) {
-    try { await btn.click({ timeout: 2000 }); await page.waitForTimeout(2000); break; } catch {}
-  }
-
-  // Name — covers Greenhouse (first_name/last_name), Lever (name), Ashby (_systemfield_name)
-  await fillField(page, '#first_name, input[name="first_name"], input[name*="first"]:not([name*="preferred"])', PROFILE.firstName);
-  await fillField(page, '#last_name, input[name="last_name"], input[name*="last"]', PROFILE.lastName);
+  // Name — covers Greenhouse, Lever, Ashby, SmartRecruiters, iCIMS, BambooHR, Recruitee, Personio
+  await fillField(page, '#first_name, input[name="first_name"], input[name*="first"]:not([name*="preferred"]), input[id*="firstName"], input[data-name*="first"]', PROFILE.firstName);
+  await fillField(page, '#last_name, input[name="last_name"], input[name*="last"], input[id*="lastName"], input[data-name*="last"]', PROFILE.lastName);
   await fillField(page, '#preferred_name, input[name="preferred_name"], input[name*="preferred"]', PROFILE.firstName);
-  await fillField(page, 'input[name="name"], input[name="cards[0][field0]"]', PROFILE.fullName); // Lever
+  await fillField(page, 'input[name="name"], input[name="cards[0][field0]"]', PROFILE.fullName); // Lever / generic
   await fillField(page, 'input[name="_systemfield_name"]', PROFILE.fullName); // Ashby
+  await fillField(page, 'input[name="candidate[first_name]"]', PROFILE.firstName); // Recruitee
+  await fillField(page, 'input[name="candidate[last_name]"]', PROFILE.lastName);   // Recruitee
+  await fillField(page, 'input[id="candidate_first_name"]', PROFILE.firstName);   // Personio
+  await fillField(page, 'input[id="candidate_last_name"]', PROFILE.lastName);     // Personio
 
-  // Email & Phone
-  await fillField(page, '#email, input[name="email"], input[type="email"], input[name="_systemfield_email"]', PROFILE.email);
-  await fillField(page, '#phone, input[name="phone"], input[type="tel"], input[name="_systemfield_phone"]', PROFILE.phone);
+  // Email & Phone — expanded for SmartRecruiters, iCIMS, BambooHR
+  await fillField(page, '#email, input[name="email"], input[type="email"], input[name="_systemfield_email"], input[id*="email"], input[name="candidate[email]"]', PROFILE.email);
+  await fillField(page, '#phone, input[name="phone"], input[type="tel"], input[name="_systemfield_phone"], input[id*="phone"], input[name="candidate[phone]"], input[placeholder*="phone" i]', PROFILE.phone);
 
-  // Socials / Location
-  await fillField(page, 'input[name*="linkedin"], input[id*="linkedin"]', PROFILE.linkedin);
-  await fillField(page, 'input[name*="location"], input[id*="location"], input[placeholder*="City"]', PROFILE.city);
+  // Address / Location — SmartRecruiters, iCIMS, BambooHR
+  await fillField(page, 'input[name*="location"], input[id*="location"], input[placeholder*="City" i], input[name*="city"], input[id*="city"]', PROFILE.city);
+  await fillField(page, 'input[name*="country"], input[id*="country"], select[name*="country"]', PROFILE.country || 'Germany');
+  await fillField(page, 'input[name*="zip"], input[id*="zip"], input[name*="postal"]', PROFILE.zip || '');
+
+  // Socials
+  await fillField(page, 'input[name*="linkedin"], input[id*="linkedin"], input[placeholder*="linkedin" i]', PROFILE.linkedin);
+  await fillField(page, 'input[name*="github"], input[id*="github"], input[placeholder*="github" i]', PROFILE.github || '');
+  await fillField(page, 'input[name*="website"], input[id*="website"], input[placeholder*="website" i], input[name*="portfolio"]', PROFILE.website || PROFILE.linkedin);
+
+  // Current company / title (iCIMS, BambooHR, SmartRecruiters)
+  await fillField(page, 'input[name*="current_company"], input[id*="currentCompany"], input[name*="company"]:not([name*="apply"]):not([name*="hiring"])', PROFILE.currentCompany || '');
+  await fillField(page, 'input[name*="current_title"], input[id*="currentTitle"], input[name*="title"]:not([name*="job"])', PROFILE.currentTitle || '');
 
   // Resume
   if (existsSync(resumePath)) {
