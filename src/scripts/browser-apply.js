@@ -75,7 +75,7 @@ async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant'
       const errText = await res.text();
       console.log(`  ⚠️ Groq API Error (${model}): ${res.status} - ${errText.substring(0,200)}`);
       
-      // Model decommissioned or invalid — escalate to 70b immediately
+      // Model decommissioned — try 70b
       if (res.status === 400 && errText.includes('decommissioned')) {
         if (model !== 'llama-3.3-70b-versatile') {
           console.log(`  🔄 Model decommissioned, switching to llama-3.3-70b-versatile...`);
@@ -92,12 +92,22 @@ async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant'
         return '{}';
       }
       
+      // TPD (daily token limit) cascade — ordered by highest daily limit:
+      //   llama-3.1-8b-instant : 500k TPD  (default)
+      //   gemma2-9b-it         : 500k TPD  (fallback #1)
+      //   llama3-8b-8192       : 500k TPD  (fallback #2)
+      //   → skip AI tailoring  (apply anyway with base resume)
+      // NOTE: llama-3.3-70b only has 100k TPD so it's NOT used for TPD recovery
       if (res.status === 429 && errText.includes('TPD')) {
-        if (model !== 'llama-3.3-70b-versatile') {
-          console.log(`  🔄 Daily TPD limit, trying 70b...`);
-          return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+        if (model === 'llama-3.1-8b-instant') {
+          console.log(`  🔄 8b TPD limit → trying gemma2-9b-it...`);
+          return await callGroq(systemPrompt, userPrompt, 'gemma2-9b-it');
         }
-        console.log(`  ⚠️ All models hit TPD limit. Skipping...`);
+        if (model === 'gemma2-9b-it') {
+          console.log(`  🔄 gemma2 TPD limit → trying llama3-8b-8192...`);
+          return await callGroq(systemPrompt, userPrompt, 'llama3-8b-8192');
+        }
+        console.log(`  ⚠️ All free models hit daily limit. Applying with base resume...`);
         return '{}';
       }
       
