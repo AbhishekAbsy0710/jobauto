@@ -1618,10 +1618,16 @@ async function main() {
       const preflightUrl = page.url().toLowerCase();
 
 
-      // Early captcha/bot detection — skip immediately
-      if (pageLower.includes('please solve this captcha') || pageLower.includes('verify you are human') || pageLower.includes('checking if the site connection is secure') || pageLower.includes('just a moment') || pageLower.includes('enable javascript and cookies')) {
-        throw new Error('Captcha/bot detection — marking for manual apply');
+      // Early captcha/bot detection — skip immediately (text + DOM)
+      const preHasCaptchaWidget = await page.evaluate(() =>
+        !!(document.querySelector('iframe[src*="hcaptcha.com"], iframe[src*="recaptcha"], .h-captcha, #h-captcha, [class*="hcaptcha"]'))
+      ).catch(() => false);
+      if (pageLower.includes('please solve this captcha') || pageLower.includes('verify you are human') ||
+          pageLower.includes('checking if the site connection is secure') || pageLower.includes('just a moment') ||
+          pageLower.includes('enable javascript and cookies') || preHasCaptchaWidget) {
+        throw new Error('Captcha/bot detection on page load — marking for manual apply');
       }
+
 
       // Detect login walls (Workday, Spotify/Teamtailor, LinkedIn Easy Apply gating)
       if (preflightUrl.includes('myworkdayjobs.com') || preflightUrl.includes('workday.com/en-us/signin')) {
@@ -1858,11 +1864,24 @@ async function main() {
         throw new Error(`Application blocked — company has per-person apply limits (applied too many times to ${job.company})`);
       }
 
-      // --- Bot/Captcha detection ---
-      if (postSubmitLower.includes('please solve this captcha') || postSubmitLower.includes('verify you are human') || postSubmitLower.includes('checking if the site connection is secure') || postSubmitLower.includes('just a moment')) {
-         job.hasCaptcha = true;
-         throw new Error('Captcha Blocked Submission');
+
+      // --- Bot/Captcha detection (text + DOM element based) ---
+      const hasCaptchaText = postSubmitLower.includes('please solve this captcha') ||
+        postSubmitLower.includes('verify you are human') ||
+        postSubmitLower.includes('checking if the site connection is secure') ||
+        postSubmitLower.includes('just a moment') ||
+        postSubmitLower.includes('hcaptcha') ||
+        postSubmitLower.includes('click all items') ||       // hCaptcha image challenge
+        postSubmitLower.includes('select all images');       // reCAPTCHA image challenge
+      const hasCaptchaWidget = await page.evaluate(() =>
+        !!(document.querySelector('iframe[src*="hcaptcha.com"], iframe[src*="recaptcha"], .h-captcha, #h-captcha, [class*="hcaptcha"], iframe[data-hcaptcha-widget-id]'))
+      ).catch(() => false);
+      if (hasCaptchaText || hasCaptchaWidget) {
+        job.hasCaptcha = true;
+        console.log('  🔒 hCaptcha/reCAPTCHA triggered post-submit — cannot solve automatically, marking for manual apply');
+        throw new Error('Captcha Blocked Submission — requires manual apply');
       }
+
 
       // --- Spam/bot block detection — try to self-heal before giving up ---
       if (postSubmitLower.includes('flagged as possible spam') || postSubmitLower.includes('flagged as spam') || postSubmitLower.includes('submission was blocked') || postSubmitLower.includes('robot') || postSubmitLower.includes('automated submission')) {
