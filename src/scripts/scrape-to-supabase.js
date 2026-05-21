@@ -109,23 +109,25 @@ async function upsertJob(job, evaluation) {
   // action, priority, risk_level, reason, matching_skills, missing_skills,
   // resume_improvements, dimension_scores, star_stories, evaluated_at)
   if (evaluation && inserted?.id) {
-    await supabase.from('evaluations').insert({
-      job_id: inserted.id,
-      letter_grade: evaluation.grade,
-      weighted_score: evaluation.score / 10,
-      match_percentage: evaluation.score,
-      action: evaluation.action,
-      priority: evaluation.grade === 'A' ? 'high' : evaluation.grade === 'B' ? 'medium' : 'low',
-      risk_level: 'low',
-      reason: evaluation.reason,
-      archetype: 'AI-Evaluated',
-      matching_skills: [],
-      missing_skills: [],
-      resume_improvements: [],
-      dimension_scores: {},
-      star_stories: [],
-      evaluated_at: new Date().toISOString(),
-    }).catch(() => {}); // ignore duplicate inserts
+    try {
+      await supabase.from('evaluations').insert({
+        job_id: inserted.id,
+        letter_grade: evaluation.grade,
+        weighted_score: evaluation.score / 10,
+        match_percentage: evaluation.score,
+        action: evaluation.action,
+        priority: evaluation.grade === 'A' ? 'high' : evaluation.grade === 'B' ? 'medium' : 'low',
+        risk_level: 'low',
+        reason: evaluation.reason,
+        archetype: 'AI-Evaluated',
+        matching_skills: [],
+        missing_skills: [],
+        resume_improvements: [],
+        dimension_scores: {},
+        star_stories: [],
+        evaluated_at: new Date().toISOString(),
+      });
+    } catch { /* ignore duplicate inserts */ }
   }
 
   return inserted?.id;

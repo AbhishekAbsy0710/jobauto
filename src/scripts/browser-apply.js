@@ -1351,31 +1351,41 @@ Return ONLY valid JSON with these keys:
 async function main() {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
 
+  // Fetch only fresh jobs (≤3 days), ordered newest-first so portal jobs
+  // (Greenhouse/Lever/Ashby) take priority over older ArbeitNow entries.
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
   let query = supabase
     .from('jobs')
     .select('*, evaluations(id, letter_grade, weighted_score)')
-    .eq('status', 'auto_queue');
+    .eq('status', 'auto_queue')
+    .gte('scraped_at', threeDaysAgo)
+    .order('scraped_at', { ascending: false })
+    .limit(50); // fetch 50, will process up to MAX_JOBS_PER_RUN
 
   // TEST MODE: restrict to a single job ID for safe testing
   if (process.env.TEST_JOB_ID) {
     console.log(`🧪 TEST MODE — running only job ID ${process.env.TEST_JOB_ID}`);
-    query = query.eq('id', process.env.TEST_JOB_ID);
+    query = supabase
+      .from('jobs')
+      .select('*, evaluations(id, letter_grade, weighted_score)')
+      .eq('id', process.env.TEST_JOB_ID);
   }
 
   const { data: rawJobs, error } = await query;
 
   if (error || !rawJobs || rawJobs.length === 0) {
-    console.log('📭 No jobs in the apply queue');
+    console.log('📭 No fresh jobs in the apply queue (all caught up or all stale)');
     return;
   }
 
   let jobs = rawJobs.map(j => {
     const e = Array.isArray(j.evaluations) ? j.evaluations[0] : j.evaluations;
     return { ...j, eval_id: e?.id, grade: e?.letter_grade, score: e?.weighted_score || 0 };
-  }).sort((a, b) => b.score - a.score);
+  }).sort((a, b) => (b.score || 0) - (a.score || 0)); // best-scored first within fresh batch
 
   // LIMIT: Max 10 jobs per run to stay within Groq free tier (100k TPD)
-  const MAX_JOBS_PER_RUN = 10;
+  const MAX_JOBS_PER_RUN = 25;
   if (jobs.length > MAX_JOBS_PER_RUN) {
     console.log(`  📊 ${jobs.length} jobs queued — capping to top ${MAX_JOBS_PER_RUN} by score`);
     jobs = jobs.slice(0, MAX_JOBS_PER_RUN);
