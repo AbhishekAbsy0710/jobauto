@@ -542,95 +542,126 @@ function switchTab(tab) {
 }
 
 // ============================================
-// LOAD APPLIED JOBS
+// LOAD APPLIED JOBS — reads directly from Supabase
 // ============================================
+const SUPABASE_URL = 'https://swscpdtchfjyzpjhwqqj.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3c2NwZHRjaGZqeXpwamh3cXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxMzk2OTEsImV4cCI6MjA2MTcxNTY5MX0.v_V_jUGXfxiMFvt8gSJWn7PXN4TzjJBbQH7pWTbDHZ8';
+
+async function sbFetch(path) {
+  const res = await fetch(SUPABASE_URL + path, {
+    headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
+  });
+  return res.json();
+}
+
 async function loadApplied() {
+  const tbody   = document.getElementById('applied-tbody');
+  const empty   = document.getElementById('applied-empty');
+  const countEl = document.getElementById('applied-count');
+  tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:24px;color:var(--text-muted)">⏳ Loading…</td></tr>';
+
   try {
-    const res = await fetch('/api/applications');
-    const apps = await res.json();
-    const tbody = document.getElementById('applied-tbody');
-    const empty = document.getElementById('applied-empty');
-    const count = document.getElementById('applied-count');
+    // Pull applied jobs with evaluation data directly from Supabase
+    const jobs = await sbFetch(
+      `/rest/v1/jobs?select=id,title,company,location,platform,apply_link,applied_at,status,proof_url,` +
+      `evaluations(letter_grade,weighted_score,matching_skills)` +
+      `&status=eq.applied&order=applied_at.desc&limit=100`
+    );
 
-    count.textContent = apps.length + ' applications';
+    // Also load failed applications from the applications table
+    const failedApps = await sbFetch(
+      `/rest/v1/applications?select=id,method,status,pdf_path,screenshot_url,applied_at,` +
+      `evaluation_id,evaluations(letter_grade,weighted_score,jobs(id,title,company,location,platform,apply_link))` +
+      `&status=eq.failed&order=applied_at.desc&limit=50`
+    );
 
-    if (apps.length === 0) {
+    // Merge: applied jobs + failed applications
+    const rows = [
+      // Applied jobs from jobs table
+      ...(Array.isArray(jobs) ? jobs : []).map(j => ({
+        type: 'applied',
+        applied_at: j.applied_at,
+        company: j.company,
+        title: j.title,
+        location: j.location,
+        platform: j.platform,
+        apply_link: j.apply_link,
+        letter_grade: j.evaluations?.[0]?.letter_grade || j.evaluations?.letter_grade,
+        weighted_score: j.evaluations?.[0]?.weighted_score || j.evaluations?.weighted_score,
+        screenshot_url: j.proof_url,
+        pdf_path: null,
+        failure_reason: null,
+      })),
+      // Failed applications from applications table
+      ...(Array.isArray(failedApps) ? failedApps : []).map(a => ({
+        type: 'failed',
+        applied_at: a.applied_at,
+        company: a.evaluations?.jobs?.company,
+        title: a.evaluations?.jobs?.title,
+        location: a.evaluations?.jobs?.location,
+        platform: a.evaluations?.jobs?.platform,
+        apply_link: a.evaluations?.jobs?.apply_link,
+        letter_grade: a.evaluations?.letter_grade,
+        weighted_score: a.evaluations?.weighted_score,
+        screenshot_url: a.screenshot_url,
+        pdf_path: a.pdf_path,
+        failure_reason: a.method,
+      })),
+    ].sort((a, b) => new Date(b.applied_at) - new Date(a.applied_at));
+
+    countEl.textContent = rows.filter(r => r.type === 'applied').length + ' applied · ' +
+                          rows.filter(r => r.type === 'failed').length + ' failed';
+
+    if (rows.length === 0) {
       tbody.innerHTML = '';
       empty.style.display = '';
       return;
     }
     empty.style.display = 'none';
 
-    tbody.innerHTML = apps.map(a => {
-      const date = new Date(a.applied_at);
-      const timeAgo = getTimeAgo(date);
-      const dateStr = date.toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'});
+    tbody.innerHTML = rows.map(r => {
+      const date    = r.applied_at ? new Date(r.applied_at) : null;
+      const dateStr = date ? date.toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'}) : '—';
+      const timeAgo = date ? getTimeAgo(date) : '';
 
-      // Status badge
-      const statusBadge = a.app_status === 'applied' || a.app_status === 'submitted'
+      const statusBadge = r.type === 'applied'
         ? '<span style="background:#00d2a0;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">✅ APPLIED</span>'
-        : a.app_status === 'failed'
-          ? '<span style="background:#ff5252;color:#fff;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">❌ FAILED</span>'
-          : '<span style="background:#ffd93d;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">⏳ PENDING</span>';
+        : '<span style="background:#ff5252;color:#fff;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">❌ FAILED</span>';
 
-      // ✅ PROOF = screenshot_url (the actual submission screenshot) 
-      // ✅ RESUME = pdf_path (the tailored resume PDF uploaded to storage)
-      // These are separate fields — proof is the screenshot, pdf_path is the resume
-      const proofHtml = a.screenshot_url
-        ? `<a href="${a.screenshot_url}" target="_blank" style="color:#00d2a0;text-decoration:none;font-size:12px;" title="View submission proof screenshot">📸 Proof</a>`
-        : a.app_status === 'failed' && a.pdf_path && a.pdf_path.startsWith('http')
-          ? `<a href="${a.pdf_path}" target="_blank" style="color:#ff5252;text-decoration:none;font-size:12px;" title="View failure screenshot">📸 Error</a>`
-          : '<span style="color:#666;font-size:12px;">—</span>';
+      const proofHtml = r.screenshot_url
+        ? `<a href="${r.screenshot_url}" target="_blank" style="color:#00d2a0;text-decoration:none;font-size:12px;" title="View proof screenshot">📸 Proof</a>`
+        : '<span style="color:#555;font-size:12px;">—</span>';
 
-      // Resume PDF link — only show if pdf_path is actually a PDF (not a screenshot)
-      const isPdf = a.pdf_path && a.pdf_path.startsWith('http') && a.pdf_path.includes('.pdf');
-      const resumeHtml = isPdf
-        ? `<a href="${a.pdf_path}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 Resume</a>`
-        : '<span style="color:#666;font-size:12px;">—</span>';
+      const failReason = r.failure_reason
+        ? `<div style="font-size:11px;color:#ff7070;margin-top:3px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.failure_reason)}">${esc((r.failure_reason||'').substring(0,40))}${r.failure_reason?.length > 40 ? '…' : ''}</div>`
+        : '';
 
-      // Parse cold email status from the method field extension
-      // Format: "auto | tailoring... ||| COLD_EMAIL_SENT:target:subject" or "COLD_EMAIL_SKIP:reason"
-      const method = a.method || '';
-      const coldPart = method.includes('|||') ? method.split('|||')[1].trim() : '';
-      let coldEmailHtml = '<span style="color:#666;font-size:11px;">—</span>';
-      if (coldPart.startsWith('COLD_EMAIL_SENT:')) {
-        const parts = coldPart.replace('COLD_EMAIL_SENT:', '').split(':');
-        const target = parts[0] || '';
-        const subject = parts.slice(1).join(':').substring(0, 50);
-        coldEmailHtml = `<span style="color:#00d2a0;font-size:11px;" title="To: ${esc(target)}\nSubject: ${esc(subject)}">✅ Sent</span><div style="font-size:10px;color:#666;">${esc(target.substring(0,25))}</div>`;
-      } else if (coldPart.startsWith('COLD_EMAIL_SKIP:')) {
-        const reason = coldPart.replace('COLD_EMAIL_SKIP:', '').substring(0, 40);
-        coldEmailHtml = `<span style="color:#ff9f43;font-size:11px;" title="${esc(reason)}">⏸ Skipped</span><div style="font-size:10px;color:#666;">${esc(reason.substring(0,25))}</div>`;
-      }
-
-      // Method badge (auto/manual) — strip the ||| cold email extension
-      const methodLabel = method.split('|')[0].trim() || 'manual';
-      const methodColors = { auto: '#00d2a0', manual: '#4da6ff' };
-      const methodBg = methodColors[methodLabel.toLowerCase()] || '#666';
+      const scoreColor = { A:'#00d2a0', B:'#4da6ff', C:'#ffd93d', D:'#ff9f43', F:'#ff5252' }[r.letter_grade] || '#666';
 
       return `
-        <tr>
+        <tr style="${r.type === 'failed' ? 'opacity:0.75;' : ''}">
           <td title="${dateStr}">
             <div style="font-weight:500;font-size:12px;">${dateStr}</div>
             <div style="font-size:11px;color:var(--text-muted);">${timeAgo}</div>
           </td>
-          <td>${statusBadge}</td>
-          <td><strong>${esc(a.company || 'N/A')}</strong></td>
-          <td>${esc(a.title || 'N/A')}</td>
-          <td>📍 ${esc(a.location || 'N/A')}</td>
-          <td>${platformIcon(a.platform)} ${esc(a.platform || 'N/A')}</td>
-          <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${methodLabel.toUpperCase()}</span></td>
-          <td><span class="grade-badge grade-${a.letter_grade}" style="font-size:12px;width:28px;height:28px;">${a.letter_grade || '?'}</span></td>
-          <td style="font-weight:600;">${a.weighted_score ? a.weighted_score.toFixed(1) : '?'}/5</td>
+          <td>${statusBadge}${failReason}</td>
+          <td><strong>${esc(r.company || 'N/A')}</strong></td>
+          <td>${esc(r.title || 'N/A')}</td>
+          <td>📍 ${esc(r.location || 'N/A')}</td>
+          <td>${platformIcon(r.platform)} ${esc(r.platform || 'N/A')}</td>
+          <td><span style="background:#333;color:#ccc;padding:2px 8px;border-radius:4px;font-size:11px;">GH</span></td>
+          <td><span class="grade-badge grade-${r.letter_grade}" style="font-size:12px;width:28px;height:28px;">${r.letter_grade || '?'}</span></td>
+          <td style="font-weight:600;color:${scoreColor}">${r.weighted_score ? r.weighted_score.toFixed(1) : '?'}/5</td>
           <td>${proofHtml}</td>
-          <td>${resumeHtml}</td>
-          <td>${coldEmailHtml}</td>
-          <td>${a.apply_link ? '<a href="' + a.apply_link + '" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View</a>' : '—'}</td>
+          <td>${r.pdf_path && r.pdf_path.includes('.pdf') ? `<a href="${r.pdf_path}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 PDF</a>` : '<span style="color:#555;font-size:12px;">—</span>'}</td>
+          <td>—</td>
+          <td>${r.apply_link ? `<a href="${r.apply_link}" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View</a>` : '—'}</td>
         </tr>
       `;
     }).join('');
   } catch (e) {
     console.error('Failed to load applications:', e);
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;padding:24px;color:#ff5252;">⚠️ Error: ${e.message}<br><small>Check browser console</small></td></tr>`;
   }
 }
 

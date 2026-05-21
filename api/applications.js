@@ -15,7 +15,7 @@ export default async function handler(req, res) {
 
   const { data, error } = await sb.from('applications')
     .select(`
-      id, method, status, pdf_path, applied_at,
+      id, method, status, pdf_path, screenshot_url, applied_at,
       evaluations!inner (
         letter_grade, weighted_score, matching_skills, resume_improvements,
         jobs!inner (
@@ -33,6 +33,7 @@ export default async function handler(req, res) {
     method: a.method,
     app_status: a.status,
     pdf_path: a.pdf_path,
+    screenshot_url: a.screenshot_url,
     applied_at: a.applied_at,
     title: a.evaluations?.jobs?.title,
     company: a.evaluations?.jobs?.company,

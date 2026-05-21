@@ -2252,13 +2252,20 @@ async function main() {
 
     await sendDiscordEmbed({
       title: `✅ Auto-Applied: ${aj.title}`,
-      description: `Successfully applied to **${aj.company}**!${aj.needsEmailVerification ? '\n\n⚠️ **ATTENTION:** This platform requires email verification. Please check your inbox and click the confirmation link to finalize your application!' : ''}`,
+      description: `Successfully applied to **${aj.company}**!${aj.needsEmailVerification ? '\n\n⚠️ **ATTENTION:** Email verification required — check inbox!' : ''}`,
       color: 0x00d2a0,
-      fields: fields,
+      fields: [
+        { name: '🏢 Company', value: aj.company || '—', inline: true },
+        { name: '📍 Location', value: aj.location || 'Europe', inline: true },
+        { name: '⭐ ATS Score', value: `**${aj.score ? aj.score.toFixed(1) : '?'} / 5.0**`, inline: true },
+        { name: '🔗 Apply Link', value: `[Open Job](${aj.apply_link})`, inline: true },
+        { name: '📄 Resume', value: aj.resumeUsed || basename(RESUME_PATH), inline: true },
+        { name: '📧 Cold Email', value: coldEmailStatus, inline: true },
+      ],
       image: proofUrl ? { url: proofUrl } : undefined,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      footer: { text: 'JobAuto — Auto-Applied ✅' }
     });
-    // Tiny delay to avoid Discord rate limit
     await new Promise(r => setTimeout(r, 500));
   }
 
@@ -2287,15 +2294,18 @@ async function main() {
       });
 
       await sendDiscordEmbed({
-        title: `⚠️ Auto-Apply Failed: ${fj.title}`,
-        description: `Failed to auto-apply to **${fj.company}**. Returned to **Manual Queue**.`,
+        title: `❌ Auto-Apply Failed: ${fj.title}`,
+        description: `Failed to apply to **${fj.company}** — moved to Manual Queue.`,
         color: 0xff4500,
         fields: [
-          { name: '❌ Reason', value: failureReason.substring(0, 100), inline: false },
-          { name: '👉 Apply Manually', value: `[Click Here](${fj.apply_link})`, inline: false }
+          { name: '🏢 Company', value: fj.company || '—', inline: true },
+          { name: '⭐ ATS Score', value: `${fj.score ? fj.score.toFixed(1) : '?'} / 5.0`, inline: true },
+          { name: '❌ Reason', value: failureReason.substring(0, 200), inline: false },
+          { name: '👉 Apply Manually', value: `[Click Here](${fj.apply_link})`, inline: false },
         ],
         image: errorProofUrl ? { url: errorProofUrl } : undefined,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        footer: { text: 'JobAuto — Manual Apply Required ⚠️' }
       });
       await new Promise(r => setTimeout(r, 500));
     }
