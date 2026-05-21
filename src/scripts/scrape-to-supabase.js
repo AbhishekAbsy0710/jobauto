@@ -70,7 +70,11 @@ function isDealBreaker(job, dealBreakers = []) {
 async function upsertJob(job, evaluation) {
   // When Groq eval is null (rate-limited/failed), default to auto_queue
   // so the apply pipeline still picks up the job rather than orphaning it.
-  const status = evaluation?.action || 'auto_queue';
+  // EXCEPTION: Ashby always triggers hCaptcha on form submit — route to manual_queue
+  const platformLower = (job.platform || '').toLowerCase();
+  const status = platformLower === 'ashby'
+    ? 'manual_queue'                          // Ashby → always needs manual apply
+    : (evaluation?.action || 'auto_queue');   // Everything else → AI-evaluated or auto
 
   // Only include columns that exist in the Supabase jobs table schema:
   // id, title, company, location, description, apply_link, platform,
