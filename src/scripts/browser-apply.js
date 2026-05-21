@@ -1649,11 +1649,28 @@ async function main() {
       const currentDomain = page.url();
       const alreadyOnATS = /greenhouse\.io|lever\.co|ashbyhq\.com|workday\.com/i.test(currentDomain);
       if (iframeUrl && !alreadyOnATS && !iframeUrl.includes('googleapis.com') && !iframeUrl.includes('gstatic.com')) {
-        console.log(`  🔀 ATS embedded in iframe — using fresh token from live page: ${iframeUrl.substring(0, 80)}...`);
-        // Store the fresh iframe URL for next time
-        try { await supabase.from('jobs').update({ apply_link: iframeUrl }).eq('id', job.id); } catch(e) {}
-        await page.goto(iframeUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForTimeout(2000 + Math.random() * 1000);
+        // Only follow iframe if we're NOT already on an ATS domain
+        // Specifically skip greenhouse.io/embed/ URLs — they trigger Cloudflare in GHA
+        // We should be navigating directly to job-boards.greenhouse.io/board/jobs/id instead
+        if (iframeUrl.includes('greenhouse.io/embed/')) {
+          console.log(`  ⏭️  Skipping embed iframe (Cloudflare-protected in GHA) — staying on company page`);
+          // Extract job_id from embed URL and navigate directly to canonical GH page
+          const forMatch = iframeUrl.match(/[?&]for=([^&]+)/);
+          const jobMatch = iframeUrl.match(/[?&]gh_jid=(\d+)/) || currentDomain.match(/gh_jid=(\d+)/);
+          if (forMatch && jobMatch) {
+            const directUrl = `https://job-boards.greenhouse.io/${forMatch[1]}/jobs/${jobMatch[1]}`;
+            console.log(`  🔀 Navigating directly to: ${directUrl}`);
+            try { await supabase.from('jobs').update({ apply_link: directUrl }).eq('id', job.id); } catch(e) {}
+            await page.goto(directUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForTimeout(2000 + Math.random() * 1000);
+          }
+        } else {
+          console.log(`  🔀 ATS embedded in iframe — using fresh token from live page: ${iframeUrl.substring(0, 80)}...`);
+          // Store the fresh iframe URL for next time
+          try { await supabase.from('jobs').update({ apply_link: iframeUrl }).eq('id', job.id); } catch(e) {}
+          await page.goto(iframeUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await page.waitForTimeout(2000 + Math.random() * 1000);
+        }
       }
 
 
