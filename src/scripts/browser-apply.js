@@ -2081,15 +2081,17 @@ async function main() {
            methodCol = 'auto | ' + tailoredChanges.substring(0, 100);
         }
 
-        // Upload proof screenshot to 'proofs' path to keep it separate from resume PDFs
+        // Upload proof screenshot — use job.id as fallback if eval_id is null
         let screenshotUrl = null;
         try {
-          const screenshotPath = join(ROOT, `proof_${job.eval_id}.jpeg`);
+          const proofId = job.eval_id || job.id;
+          const screenshotPath = join(ROOT, `proof_${proofId}_${Date.now()}.jpeg`);
           await page.screenshot({ path: screenshotPath, fullPage: true, quality: 40, type: 'jpeg' });
           const screenshotBuffer = readFileSync(screenshotPath);
-          const proofFileName = `proof_${job.eval_id}_${Date.now()}.jpeg`;
+          const proofFileName = `proof_${proofId}_${Date.now()}.jpeg`;
           await supabase.storage.from('screenshots').upload(proofFileName, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
           screenshotUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${proofFileName}`;
+          console.log(`  📸 Proof screenshot uploaded: ${proofFileName}`);
         } catch (ssErr) {
           console.log(`  ⚠️ Failed to upload proof screenshot: ${ssErr.message}`);
         }
