@@ -37,8 +37,7 @@ greenhouse:
     name: PlanetScale
 
   # ── Data & Analytics ───────────────────────
-  - board_id: fivetran
-    name: Fivetran
+  # fivetran — REMOVED: job-boards.greenhouse.io/fivetran redirects to fivetran.com/careers
   # starburst — REMOVED: marketing page redirect on job-boards.greenhouse.io
 
   # ── Security ───────────────────────────────
@@ -46,8 +45,7 @@ greenhouse:
     name: Orca Security
 
   # ── Finance ────────────────────────────────
-  - board_id: brex
-    name: Brex
+  # brex — REMOVED: job-boards.greenhouse.io/brex redirects to brex.com/careers
 
   # ── European Tech ──────────────────────────
   # celonis — REMOVED: serves Celonis homepage at job-boards.greenhouse.io/celonis
