@@ -80,6 +80,9 @@ greenhouse:
     name: Collibra (Brussels)
   - board_id: showpad
     name: Showpad (Ghent)
+  # ── Luxembourg ──────────────────────────────
+  - board_id: skyscanner
+    name: Skyscanner (Luxembourg → 15 jobs verified)
 
   # ── Austria / DACH ─────────────────────────
   - board_id: bitpanda

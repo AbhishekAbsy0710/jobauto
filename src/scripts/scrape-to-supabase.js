@@ -12,6 +12,7 @@ import { scanPortals } from '../scrapers/portals.js';
 import { scrapeLinkedIn } from '../scrapers/linkedin.js';
 import { scrapeIndeed } from '../scrapers/indeed.js';
 import { scrapeStepStone } from '../scrapers/stepstone.js';
+import { scrapeLuxembourg } from '../scrapers/luxembourg.js';
 import { loadConfig, loadPortals } from '../config.js';
 
 const supabase = createClient(
@@ -159,9 +160,10 @@ Deal breakers: ${dealBreakers.join(', ')}
   `.trim();
 
   console.log('\n🚀 JobAuto — Scrape to Supabase');
-  console.log(`   Sources: ArbeitNow, RemoteOK, Portals (Greenhouse/Lever/Ashby), LinkedIn, Indeed, StepStone`);
+  console.log(`   Sources: ArbeitNow, RemoteOK, Portals (Greenhouse/Lever/Ashby), LinkedIn, Indeed, StepStone, Luxembourg`);
   console.log(`   Keywords: ${keywords.slice(0, 4).join(', ')}...`);
   console.log(`   Locations: ${locations.slice(0, 4).join(', ')}...`);
+  console.log(`   Luxembourg: Amazon Jobs + Jobs.lu + Moovijob + Skyscanner (Greenhouse)`);
   console.log('');
 
   const results = { total: 0, new: 0, skipped: 0, errors: 0 };
@@ -174,10 +176,11 @@ Deal breakers: ${dealBreakers.join(', ')}
   ]);
 
   // ── Batch 2: Web scrapers (with error tolerance) ──────────────────────────
-  const [linkedinRes, indeedRes, stepstoneRes] = await Promise.allSettled([
+  const [linkedinRes, indeedRes, stepstoneRes, luxembourgRes] = await Promise.allSettled([
     scrapeLinkedIn().catch(e => { console.log(`  ⚠️  LinkedIn: ${e.message}`); return []; }),
     scrapeIndeed().catch(e => { console.log(`  ⚠️  Indeed: ${e.message}`); return []; }),
     scrapeStepStone().catch(e => { console.log(`  ⚠️  StepStone: ${e.message}`); return []; }),
+    scrapeLuxembourg().catch(e => { console.log(`  ⚠️  Luxembourg: ${e.message}`); return []; }),
   ]);
 
   const allJobs = [
@@ -187,6 +190,7 @@ Deal breakers: ${dealBreakers.join(', ')}
     ...(linkedinRes.status === 'fulfilled' ? linkedinRes.value : []),
     ...(indeedRes.status === 'fulfilled' ? indeedRes.value : []),
     ...(stepstoneRes.status === 'fulfilled' ? stepstoneRes.value : []),
+    ...(luxembourgRes.status === 'fulfilled' ? luxembourgRes.value : []),
   ];
 
   console.log(`\n📋 Total scraped: ${allJobs.length} jobs — now evaluating & upserting...\n`);
