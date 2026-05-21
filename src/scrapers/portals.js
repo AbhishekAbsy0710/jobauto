@@ -58,7 +58,10 @@ async function scanGreenhouseBoards(boards, keywords) {
           title: j.title,
           company: board.name,
           platform: 'greenhouse',
-          apply_link: j.absolute_url || `https://boards.greenhouse.io/${board.board_id}/jobs/${j.id}`,
+          // Always use canonical Greenhouse URL (job-boards.greenhouse.io) — NOT j.absolute_url
+          // which resolves to the company's own website (e.g. sumup.com/careers/...)
+          // which has Cloudflare bot protection blocking GHA runner IPs.
+          apply_link: `https://job-boards.greenhouse.io/${board.board_id}/jobs/${j.id}`,
           apply_type: 'external',
           description: desc.slice(0, 5000),
           location: location,
