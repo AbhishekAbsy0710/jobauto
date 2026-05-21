@@ -75,6 +75,7 @@ async function upsertJob(job, evaluation) {
   //   - ashby: all companies (Braintrust, WorkOS, Sentry, etc.)
   //   - lever: Spotify confirmed; likely all Lever companies
   const CAPTCHA_PLATFORMS = ['ashby', 'lever'];
+  const platformLower = (job.platform || '').toLowerCase();
   const status = CAPTCHA_PLATFORMS.includes(platformLower)
     ? 'manual_queue'                          // hCaptcha → always needs manual apply
     : (evaluation?.action || 'auto_queue');   // RemoteOK/ArbeitNow/Greenhouse → auto
