@@ -70,35 +70,21 @@ greenhouse:
     name: PicsArt
 
   # ── Swiss / Benelux ────────────────────────
-  - board_id: scandit
-    name: Scandit (Zurich)
-  - board_id: adyen
-    name: Adyen (Amsterdam)
-  - board_id: catawiki
-    name: Catawiki (Amsterdam)
-  - board_id: collibra
-    name: Collibra (Brussels)
-  - board_id: showpad
-    name: Showpad (Ghent)
+  # scandit, adyen, catawiki, collibra, showpad — REMOVED: Cloudflare/captcha blocks GHA IPs
+
   # ── Luxembourg ──────────────────────────────
-  - board_id: skyscanner
-    name: Skyscanner (Luxembourg → 15 jobs verified)
+  # skyscanner — REMOVED: job-boards.greenhouse.io/skyscanner redirects to company website
 
   # ── Austria / DACH ─────────────────────────
-  - board_id: bitpanda
-    name: Bitpanda (Vienna)
+  # bitpanda — REMOVED: 404 on Greenhouse boards-api
 
   # ── Germany / DACH (Greenhouse) ──────────────
-  - board_id: trivago
-    name: Trivago (Düsseldorf)
-  - board_id: n26
-    name: N26 (Berlin)
+  # trivago, n26 — REMOVED: serve company marketing page, no apply form
 
   # ── Remote-first ───────────────────────────
   - board_id: remote
     name: Remote.com
-  - board_id: fastly
-    name: Fastly (Remote)
+  # fastly — REMOVED: job-boards.greenhouse.io/fastly serves Fastly's own website
   - board_id: dbt-labs
     name: dbt Labs (Remote)
 
