@@ -31,10 +31,9 @@ greenhouse:
   # circleci — REMOVED: Cloudflare block on GHA runner IPs
   - board_id: cockroachlabs
     name: CockroachDB
-  - board_id: clickhouse
-    name: ClickHouse
-  - board_id: planetscale
-    name: PlanetScale
+  # clickhouse — REMOVED: form submits but no success confirmation returned (agent: undefined)
+  # planetscale — REMOVED: Cloudflare captcha blocks GHA runner IPs
+
 
   # ── Data & Analytics ───────────────────────
   # fivetran — REMOVED: job-boards.greenhouse.io/fivetran redirects to fivetran.com/careers
