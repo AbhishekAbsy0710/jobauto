@@ -24,14 +24,11 @@ greenhouse:
     name: Vercel
   - board_id: temporal
     name: Temporal
-  - board_id: datadog
-    name: Datadog
+  # datadog — REMOVED: bot detection / Cloudflare on GHA IPs
   - board_id: grafanalabs
     name: Grafana Labs
-  - board_id: gitlab
-    name: GitLab
-  - board_id: circleci
-    name: CircleCI
+  # gitlab — REMOVED: redirects to about.gitlab.com, no apply form
+  # circleci — REMOVED: Cloudflare block on GHA runner IPs
   - board_id: cockroachlabs
     name: CockroachDB
   - board_id: clickhouse
@@ -42,8 +39,7 @@ greenhouse:
   # ── Data & Analytics ───────────────────────
   - board_id: fivetran
     name: Fivetran
-  - board_id: starburst
-    name: Starburst
+  # starburst — REMOVED: marketing page redirect on job-boards.greenhouse.io
 
   # ── Security ───────────────────────────────
   - board_id: orca
@@ -54,18 +50,14 @@ greenhouse:
     name: Brex
 
   # ── European Tech ──────────────────────────
-  - board_id: celonis
-    name: Celonis (Munich)
-  - board_id: contentful
-    name: Contentful (Berlin)
-  - board_id: sumup
-    name: SumUp (Berlin)
+  # celonis — REMOVED: serves Celonis homepage at job-boards.greenhouse.io/celonis
+  # contentful — REMOVED: Cloudflare captcha on GHA IPs
+  # sumup — REMOVED: job-boards.greenhouse.io/sumup serves marketing page
   - board_id: moonfare
     name: Moonfare (Berlin)
   - board_id: solarisbank
     name: Solaris (Berlin)
-  - board_id: commercetools
-    name: Commercetools (Munich)
+  # commercetools — REMOVED: captcha block on GHA runner IPs
   - board_id: picsart
     name: PicsArt
 
