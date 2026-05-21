@@ -75,10 +75,13 @@ async function upsertJob(job, evaluation) {
   //   - ashby: all companies (Braintrust, WorkOS, Sentry, etc.)
   //   - lever: Spotify confirmed; likely all Lever companies
   const CAPTCHA_PLATFORMS = ['ashby', 'lever'];
+  // Companies whose apply pages block GHA IPs (Cloudflare bot protection on custom career sites)
+  const PAGE_LOAD_BLOCKED_COMPANIES = ['bitpanda', 'showpad', 'cockroach labs', 'cockroachlabs'];
   const platformLower = (job.platform || '').toLowerCase();
-  const status = CAPTCHA_PLATFORMS.includes(platformLower)
-    ? 'manual_queue'                          // hCaptcha → always needs manual apply
-    : (evaluation?.action || 'auto_queue');   // RemoteOK/ArbeitNow/Greenhouse → auto
+  const companyLower = (job.company || '').toLowerCase();
+  const status = CAPTCHA_PLATFORMS.includes(platformLower) || PAGE_LOAD_BLOCKED_COMPANIES.some(c => companyLower.includes(c))
+    ? 'manual_queue'                          // hCaptcha / bot-protected page → manual
+    : (evaluation?.action || 'auto_queue');   // Greenhouse/RemoteOK/ArbeitNow → auto
 
   // Only include columns that exist in the Supabase jobs table schema:
   // id, title, company, location, description, apply_link, platform,

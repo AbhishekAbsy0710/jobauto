@@ -1690,6 +1690,19 @@ async function main() {
         throw new Error('Captcha/bot detection on page load — marking for manual apply');
       }
 
+      // Detect company marketing/landing page instead of apply form
+      // Some companies (Fastly, N26, Trivago, Skyscanner) serve their full website
+      // at job-boards.greenhouse.io/BOARD/jobs/ID — no form fields present.
+      const hasFormFields = await page.evaluate(() =>
+        !!(document.querySelector('input[type="email"], input[name*="email" i], input[name*="first" i], input[name*="name" i], input[name*="resume" i], input[type="file"], .application-form, #application-form, form[action*="apply"], form[action*="application"]'))
+      ).catch(() => false);
+      const hasNavMenu = await page.evaluate(() =>
+        (document.querySelectorAll('nav a, header a, [role="navigation"] a').length > 5)
+      ).catch(() => false);
+      if (!hasFormFields && hasNavMenu) {
+        throw new Error('Company marketing page detected (no apply form) — marking for manual apply');
+      }
+
 
       // Detect login walls (Workday, Spotify/Teamtailor, LinkedIn Easy Apply gating)
       if (preflightUrl.includes('myworkdayjobs.com') || preflightUrl.includes('workday.com/en-us/signin')) {
