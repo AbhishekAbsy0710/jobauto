@@ -1341,27 +1341,27 @@ Return ONLY valid JSON with these keys:
     console.error('  ⚠️ Failed to upload tailored resume:', e.message);
   }
 
+
   return { pdfPath: outputPath, publicUrl, changes: tailoredJson.changes_made || 'Tailored' };
 }
 
 // ============================================
 // MAIN
-
 // ============================================
 async function main() {
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
 
-  // Fetch only fresh jobs (≤3 days), ordered newest-first so portal jobs
-  // (Greenhouse/Lever/Ashby) take priority over older ArbeitNow entries.
-  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  // Fetch jobs from auto_queue — 30-day window to include full backlog
+  // (3-day window was excluding ALL existing Anthropic/Grafana/xAI jobs)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   let query = supabase
     .from('jobs')
     .select('*, evaluations(id, letter_grade, weighted_score)')
     .eq('status', 'auto_queue')
-    .gte('scraped_at', threeDaysAgo)
+    .gte('scraped_at', thirtyDaysAgo)
     .order('scraped_at', { ascending: false })
-    .limit(50); // fetch 50, will process up to MAX_JOBS_PER_RUN
+    .limit(200); // fetch 200 to ensure diversity across all companies
 
   // TEST MODE: restrict to a single job ID for safe testing
   if (process.env.TEST_JOB_ID) {
@@ -1375,21 +1375,21 @@ async function main() {
   const { data: rawJobs, error } = await query;
 
   if (error || !rawJobs || rawJobs.length === 0) {
-    console.log('📭 No fresh jobs in the apply queue (all caught up or all stale)');
+    console.log('💭 No jobs in the apply queue (all caught up)');
     return;
   }
 
   let jobs = rawJobs.map(j => {
     const e = Array.isArray(j.evaluations) ? j.evaluations[0] : j.evaluations;
     return { ...j, eval_id: e?.id, grade: e?.letter_grade, score: e?.weighted_score || 0 };
-  }).sort((a, b) => (b.score || 0) - (a.score || 0)); // best-scored first within fresh batch
+  }).sort((a, b) => (b.score || 0) - (a.score || 0)); // best-scored first
 
   // LIMIT: Max 25 jobs per run
   const MAX_JOBS_PER_RUN = 25;
   // DIVERSITY: Max 3 jobs per company in the pre-filtered batch
   const MAX_PREFILTER_PER_COMPANY = 3;
-  // BLOCK LIST: Companies confirmed to block bots at page load (GHA IP blocked)
-  const PAGE_LOAD_BLOCKED = ['adyen', 'cloudflare', 'stripe'];
+  // BLOCK LIST: Companies confirmed to block bots or have non-confirming forms
+  const PAGE_LOAD_BLOCKED = ['adyen', 'cloudflare', 'stripe', 'planetscale', 'clickhouse'];
 
   // Pre-filter: cap per company so one company can't dominate the 25-slot batch
   const prefilterCounts = {};
