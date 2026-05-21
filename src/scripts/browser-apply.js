@@ -1384,11 +1384,26 @@ async function main() {
     return { ...j, eval_id: e?.id, grade: e?.letter_grade, score: e?.weighted_score || 0 };
   }).sort((a, b) => (b.score || 0) - (a.score || 0)); // best-scored first within fresh batch
 
-  // LIMIT: Max 10 jobs per run to stay within Groq free tier (100k TPD)
+  // LIMIT: Max 25 jobs per run
   const MAX_JOBS_PER_RUN = 25;
+  // DIVERSITY: Max 3 jobs per company in the pre-filtered batch
+  const MAX_PREFILTER_PER_COMPANY = 3;
+  // BLOCK LIST: Companies confirmed to block bots at page load (GHA IP blocked)
+  const PAGE_LOAD_BLOCKED = ['adyen', 'cloudflare', 'stripe'];
+
+  // Pre-filter: cap per company so one company can't dominate the 25-slot batch
+  const prefilterCounts = {};
+  jobs = jobs.filter(j => {
+    const key = (j.company || '').toLowerCase().replace(/[^a-z]/g, '');
+    prefilterCounts[key] = (prefilterCounts[key] || 0) + 1;
+    return prefilterCounts[key] <= MAX_PREFILTER_PER_COMPANY;
+  });
+
   if (jobs.length > MAX_JOBS_PER_RUN) {
-    console.log(`  📊 ${jobs.length} jobs queued — capping to top ${MAX_JOBS_PER_RUN} by score`);
+    console.log(`  📊 ${jobs.length} jobs queued (after company cap) — capping to top ${MAX_JOBS_PER_RUN} by score`);
     jobs = jobs.slice(0, MAX_JOBS_PER_RUN);
+  } else {
+    console.log(`  📊 ${jobs.length} jobs queued (max ${MAX_PREFILTER_PER_COMPANY}/company diversity applied)`);
   }
 
   console.log(`\n🚀 Auto-applying to ${jobs.length} jobs via Playwright (AI Enabled)...\n`);
