@@ -68,13 +68,15 @@ function isDealBreaker(job, dealBreakers = []) {
 
 // ── Upsert job + optional evaluation into Supabase ───────────────────────────
 async function upsertJob(job, evaluation) {
-  // When Groq eval is null (rate-limited/failed), default to auto_queue
-  // so the apply pipeline still picks up the job rather than orphaning it.
-  // EXCEPTION: Ashby always triggers hCaptcha on form submit — route to manual_queue
-  const platformLower = (job.platform || '').toLowerCase();
-  const status = platformLower === 'ashby'
-    ? 'manual_queue'                          // Ashby → always needs manual apply
-    : (evaluation?.action || 'auto_queue');   // Everything else → AI-evaluated or auto
+  // EXCEPTION: Some ATS platforms always trigger hCaptcha on form submit.
+  // Route them to manual_queue at scrape time to avoid wasting browser time.
+  // Confirmed hCaptcha platforms (tested empirically):
+  //   - ashby: all companies (Braintrust, WorkOS, Sentry, etc.)
+  //   - lever: Spotify confirmed; likely all Lever companies
+  const CAPTCHA_PLATFORMS = ['ashby', 'lever'];
+  const status = CAPTCHA_PLATFORMS.includes(platformLower)
+    ? 'manual_queue'                          // hCaptcha → always needs manual apply
+    : (evaluation?.action || 'auto_queue');   // RemoteOK/ArbeitNow/Greenhouse → auto
 
   // Only include columns that exist in the Supabase jobs table schema:
   // id, title, company, location, description, apply_link, platform,
