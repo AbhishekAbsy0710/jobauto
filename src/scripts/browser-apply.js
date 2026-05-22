@@ -1581,15 +1581,22 @@ async function main() {
         // Strategy 2: Click the "Apply" / "Bewerben" button and catch the navigation
         if (!realApplyUrl) {
           try {
-            const applyBtn = await page.$('a[class*="apply"], button[class*="apply"], a:has-text("Apply Now"), a:has-text("Apply"), a:has-text("Jetzt bewerben"), a:has-text("Bewerben")').catch(() => null);
+            const applyBtn = await page.$('a[class*="apply"], button[class*="apply"], a:has-text("Apply Now"), a:has-text("Apply"), a:has-text("Jetzt bewerben"), a:has-text("Bewerben"), a:has-text("Apply for this job")').catch(() => null);
             if (applyBtn) {
-              const [newPage] = await Promise.race([
-                Promise.all([page.context().waitForEvent('page', { timeout: 5000 }), applyBtn.click()]),
-                new Promise(r => setTimeout(() => r([null]), 5000))
-              ]).catch(() => [null]);
-              if (newPage && newPage.url && newPage.url() !== 'about:blank') {
-                realApplyUrl = newPage.url();
-                await newPage.close().catch(() => {});
+              // First try: just read the href if it's an anchor (no click needed)
+              const href = await applyBtn.evaluate(el => el.tagName === 'A' ? el.href : null).catch(() => null);
+              if (href && !href.includes('arbeitnow.com') && !href.includes('javascript:')) {
+                realApplyUrl = href;
+              } else {
+                // Fallback: click and catch new tab/navigation
+                const [newPage] = await Promise.race([
+                  Promise.all([page.context().waitForEvent('page', { timeout: 5000 }), applyBtn.click()]),
+                  new Promise(r => setTimeout(() => r([null]), 5000))
+                ]).catch(() => [null]);
+                if (newPage && newPage.url && newPage.url() !== 'about:blank') {
+                  realApplyUrl = newPage.url();
+                  await newPage.close().catch(() => {});
+                }
               }
             }
           } catch (e) {}
@@ -1631,19 +1638,19 @@ async function main() {
           await page.goto(realApplyUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
           await page.waitForTimeout(2000 + Math.random() * 1000);
         } else {
-          // Last resort: ask Groq to find the apply link from the live DOM
+          // Last resort: ask AI to find the apply link from the live DOM (use fast 8b model)
           console.log('  🔧 Static extraction failed — asking AI to find apply URL from DOM...');
           const domLinks = await page.evaluate(() =>
             Array.from(document.querySelectorAll('a[href]'))
               .map(a => ({ text: (a.textContent || '').trim().substring(0, 60), href: a.href }))
-              .filter(a => a.href && !a.href.startsWith('javascript') && a.href.length > 10)
+              .filter(a => a.href && !a.href.startsWith('javascript') && a.href.length > 10 && !a.href.includes('arbeitnow.com'))
               .slice(0, 30)
           ).catch(() => []);
           const pageSnippet = await page.textContent('body').catch(() => '').then(t => t.substring(0, 500));
           const aiRaw = await callGroq(
             'You are a browser automation agent. Return only valid JSON.',
-            `A job board page failed to provide an external ATS apply link. Find it.\nPage text: ${pageSnippet}\nAll links on page (JSON): ${JSON.stringify(domLinks)}\n\nReturn JSON: {"url": "the full apply URL"} or {"url": null} if not found. Only return URLs from greenhouse.io, lever.co, ashbyhq.com, workday.com, smartrecruiters.com, jobs.lever.co, or similar real ATS domains.`,
-            'llama-3.3-70b-versatile'
+            `Find the job application URL on this ArbeitNow job page.\nPage text: ${pageSnippet}\nLinks on page: ${JSON.stringify(domLinks)}\n\nReturn JSON: {"url": "full apply URL or null"}. Pick any link that goes to a job application form — ATS domains (greenhouse, lever, ashby, workday, smartrecruiters), company career pages, or any external /apply or /jobs URL.`,
+            'llama-3.1-8b-instant'  // Use 8b model — 500k TPD vs 100k for 70b
           );
           try {
             const aiResult = JSON.parse(aiRaw);
@@ -1656,9 +1663,11 @@ async function main() {
             }
           } catch {}
           if (!realApplyUrl) {
-            // Truly not findable — archive it
-            try { await supabase.from('jobs').update({ status: 'archived', notes: 'ArbeitNow: no external apply URL found after AI analysis' }).eq('id', job.id); } catch(e) {}
-            throw new Error('Job board page — could not find external apply URL (archived)');
+            // Move to manual_queue (not archived) — URL may work on non-GHA IP
+            await supabase.from('jobs').update({ status: 'manual_queue' }).eq('id', job.id).catch(() => {});
+            throw new Error('ArbeitNow: could not find external apply URL — moved to manual_queue');
+
+
           }
         }
       }

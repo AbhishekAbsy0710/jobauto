@@ -29,7 +29,7 @@ async function evaluateJob(job, profileText) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama-3.1-8b-instant',   // 500k tokens/day vs 100k for 70b — scraper burns too many tokens
         temperature: 0.1,
         max_tokens: 400,
         messages: [
