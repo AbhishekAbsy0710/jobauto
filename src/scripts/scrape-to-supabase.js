@@ -69,19 +69,24 @@ function isDealBreaker(job, dealBreakers = []) {
 
 // ── Upsert job + optional evaluation into Supabase ───────────────────────────
 async function upsertJob(job, evaluation) {
-  // EXCEPTION: Some ATS platforms always trigger hCaptcha on form submit.
+  // EXCEPTION: Some ATS platforms always trigger hCaptcha on form submit,
+  // or are blocked by Cloudflare Bot Management on GHA datacenter IPs.
   // Route them to manual_queue at scrape time to avoid wasting browser time.
-  // Confirmed hCaptcha platforms (tested empirically):
-  //   - ashby: all companies (Braintrust, WorkOS, Sentry, etc.)
-  //   - lever: Spotify confirmed; likely all Lever companies
-  const CAPTCHA_PLATFORMS = ['ashby', 'lever'];
+  //
+  //   - greenhouse: job-boards.greenhouse.io is behind Cloudflare — GHA IPs blocked 100%
+  //   - ashby: all companies trigger hCaptcha on form submit
+  //   - lever: Spotify confirmed; likely all Lever companies trigger hCaptcha
+  const CAPTCHA_PLATFORMS = ['ashby', 'lever', 'greenhouse'];
   // Companies whose apply pages block GHA IPs (Cloudflare bot protection on custom career sites)
   const PAGE_LOAD_BLOCKED_COMPANIES = ['bitpanda', 'showpad', 'cockroach labs', 'cockroachlabs'];
   const platformLower = (job.platform || '').toLowerCase();
   const companyLower = (job.company || '').toLowerCase();
-  const status = CAPTCHA_PLATFORMS.includes(platformLower) || PAGE_LOAD_BLOCKED_COMPANIES.some(c => companyLower.includes(c))
-    ? 'manual_queue'                          // hCaptcha / bot-protected page → manual
-    : (evaluation?.action || 'auto_queue');   // Greenhouse/RemoteOK/ArbeitNow → auto
+  // Also check apply_link directly — some jobs have platform='unknown' but link to greenhouse
+  const applyLinkLower = (job.apply_link || '').toLowerCase();
+  const isGreenhouseLink = applyLinkLower.includes('greenhouse.io') || applyLinkLower.includes('job-boards.greenhouse');
+  const status = CAPTCHA_PLATFORMS.includes(platformLower) || PAGE_LOAD_BLOCKED_COMPANIES.some(c => companyLower.includes(c)) || isGreenhouseLink
+    ? 'manual_queue'                          // Cloudflare/hCaptcha blocked → manual
+    : (evaluation?.action || 'auto_queue');   // ArbeitNow/RemoteOK/Jobgether → auto
 
   // Only include columns that exist in the Supabase jobs table schema:
   // id, title, company, location, description, apply_link, platform,

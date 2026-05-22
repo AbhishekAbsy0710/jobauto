@@ -1360,6 +1360,7 @@ async function main() {
     .select('*, evaluations(id, letter_grade, weighted_score)')
     .eq('status', 'auto_queue')
     .gte('scraped_at', thirtyDaysAgo)
+    .not('apply_link', 'ilike', '%greenhouse%')   // GHA IPs blocked by Cloudflare on greenhouse.io
     .order('scraped_at', { ascending: false })
     .limit(200); // fetch 200 to ensure diversity across all companies
 
