@@ -45,7 +45,10 @@ Return ONLY valid JSON in this EXACT shape (no markdown, no explanation):
     "experience_level": {"grade":"<A-F>","reason":"<1 sentence>"},
     "education_fit": {"grade":"<A-F>","reason":"<1 sentence>"},
     "location_match": {"grade":"<A-F>","reason":"<1 sentence>"},
-    "culture_fit": {"grade":"<A-F>","reason":"<1 sentence>"}
+    "culture_fit": {"grade":"<A-F>","reason":"<1 sentence>"},
+    "communication": {"grade":"<A-F>","reason":"<1 sentence>"},
+    "leadership": {"grade":"<A-F>","reason":"<1 sentence>"},
+    "domain_knowledge": {"grade":"<A-F>","reason":"<1 sentence>"}
   },
   "resume_improvements": ["improvement1","improvement2","improvement3"],
   "star_stories": [{"situation":"<context>","task":"<challenge>","action":"<what to do>","result":"<expected outcome>"}]

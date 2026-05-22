@@ -27,10 +27,15 @@ export async function generateTailoredResume(job, context = null, supabase = nul
   const baseJsonStr = readFileSync(baseJsonPath, 'utf8');
 
   const sysPrompt = `You are an expert technical recruiter. Your task is to tailor the candidate's resume for the target Job Description to maximize ATS match.
-To prevent hallucinations or loss of data, you are ONLY allowed to output three things in JSON format:
+
+CRITICAL RULES:
+- Do NOT remove, modify, or rewrite any experience entries or bullet points. ALL experience MUST remain exactly as-is.
+- Do NOT invent new experience or companies.
+- You may ONLY output three things in JSON format:
+
 1. "title": A new professional title that closely matches the target job.
-2. "summary": A tailored professional summary (approx. 3-4 sentences) that highlights the candidate's existing experience in a way that matches the job description. Do NOT invent new experience.
-3. "new_skills": An array of strings containing 3 to 8 relevant keywords/skills from the Job Description that the candidate realistically possesses based on their base resume.
+2. "summary": A tailored professional summary (approx. 3-4 sentences) that highlights the candidate's EXISTING experience in a way that matches the job description. Do NOT invent new experience.
+3. "new_skills": An array of 3-8 relevant keywords/skills from the Job Description that the candidate realistically possesses based on their base resume.
 
 Return ONLY valid JSON matching this exact structure:
 {

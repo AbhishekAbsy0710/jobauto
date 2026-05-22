@@ -78,7 +78,7 @@ async function loadStats() {
     const manualApply = evals.filter(e => e.action === 'manual_queue' || e.action === 'Review').length;
     const ignored = evals.filter(e => e.action === 'skip' || e.action === 'Skip').length;
     const scores = evals.map(e => e.weighted_score).filter(s => s > 0);
-    const avgMatch = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : 0;
+    const avgMatch = scores.length ? ((scores.reduce((a, b) => a + b, 0) / scores.length) * 10).toFixed(0) : 0;
 
     // Grade distribution
     const gradeCounts = {};
@@ -170,13 +170,21 @@ function renderJobs(jobs) {
   grid.innerHTML = jobs.map(job => {
     const grade = job.letter_grade || '—';
     const gradeClass = `grade-${grade}`;
-    const scoreDisplay = job.weighted_score ? `${job.weighted_score}/5` : `${job.match_percentage || 0}%`;
-    const scorePct = job.weighted_score ? (job.weighted_score / 5) * 100 : (job.match_percentage || 0);
+    const scorePct = job.weighted_score ? (job.weighted_score / 10) * 100 : (job.match_percentage || 0);
+    const scoreDisplay = job.weighted_score ? `${(job.weighted_score * 10).toFixed(0)}%` : `${job.match_percentage || 0}%`;
     const barColor = getGradeColor(grade);
     const actionClass = (job.action || '').toLowerCase();
 
     const matchingSkills = (job.matching_skills || []).slice(0, 4);
     const missingSkills = (job.missing_skills || []).slice(0, 2);
+
+    // Job description snippet (2 lines max)
+    const descSnippet = (job.description || '').replace(/\n+/g, ' ').slice(0, 180);
+
+    // Dimension scores compact display
+    const dims = job.dimension_scores || {};
+    const dimKeys = Object.keys(dims).slice(0, 5);
+    const dimLabels = { technical_skills: 'Tech', experience_level: 'Exp', education_fit: 'Edu', location_match: 'Loc', culture_fit: 'Fit', communication: 'Comm', leadership: 'Lead', domain_knowledge: 'Domain' };
 
     return `
       <div class="job-card" onclick="openJobModal(${job.id})">
@@ -187,6 +195,8 @@ function renderJobs(jobs) {
           </div>
           <div class="grade-badge ${gradeClass}">${grade}</div>
         </div>
+
+        ${descSnippet ? `<div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin:6px 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(descSnippet)}${descSnippet.length >= 180 ? '…' : ''}</div>` : ''}
 
         <div class="job-meta">
           ${job.archetype ? `<span class="tag tag-archetype">${archetypeIcon(job.archetype)} ${esc(job.archetype)}</span>` : ''}
@@ -201,17 +211,30 @@ function renderJobs(jobs) {
             <span>ATS Score: ${scoreDisplay}</span>
             <span>${job.priority || ''}</span>
           </div>
-          ${job.status === 'applied' && job.applications && job.applications.length > 0 ? `
-          <div style="font-size: 11px; color: var(--text-secondary); margin-top: 6px;">
-            <span style="color:#00d2a0">📄 Resume Changes:</span> ${esc(job.applications[job.applications.length - 1].method && job.applications[job.applications.length - 1].method.includes('|') ? job.applications[job.applications.length - 1].method.split('|')[1].trim() : 'Base Resume (No modifications)')}
-          </div>
-          ` : ''}
         </div>
+
+        ${dimKeys.length ? `
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;">
+            ${dimKeys.map(k => {
+              const d = dims[k];
+              const g = d?.grade || 'C';
+              const c = getGradeColor(g);
+              const label = dimLabels[k] || k.replace(/_/g,' ').slice(0,6);
+              return `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:${c}22;color:${c};font-weight:600;" title="${k}: ${g}">${label}: ${g}</span>`;
+            }).join('')}
+          </div>
+        ` : ''}
 
         ${matchingSkills.length ? `
           <div class="skills-preview">
             ${matchingSkills.map(s => `<span class="skill-tag">${esc(s)}</span>`).join('')}
             ${missingSkills.map(s => `<span class="skill-tag missing">${esc(s)}</span>`).join('')}
+          </div>
+        ` : ''}
+
+        ${(job.resume_improvements || []).length ? `
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+            💡 ${esc((job.resume_improvements || [])[0])}
           </div>
         ` : ''}
       </div>
@@ -332,7 +355,7 @@ async function openJobModal(id) {
           <span class="tag tag-action ${(ev.action||'').toLowerCase()}">${actionIcon(ev.action)} ${esc(ev.action)}</span>
           <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">⚠️ ${ev.risk_level} Risk</span>
           <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">🎯 ${ev.priority}</span>
-          <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">⭐ ATS Score: ${ev.weighted_score}/5.0</span>
+          <span class="tag" style="background:rgba(255,255,255,0.06);color:var(--text-secondary)">⭐ ATS Score: ${(ev.weighted_score * 10).toFixed(0)}%</span>
         </div>
 
         ${job.status === 'applied' && job.applications && job.applications.length > 0 ? `
@@ -618,8 +641,8 @@ async function loadApplied() {
   try {
     // Pull applied jobs with evaluation data directly from Supabase
     const jobs = await sbFetch(
-      `/rest/v1/jobs?select=id,title,company,location,platform,apply_link,applied_at,status,proof_url,` +
-      `evaluations(letter_grade,weighted_score,matching_skills)` +
+      `/rest/v1/jobs?select=id,title,company,location,platform,apply_link,applied_at,status,proof_url,description,` +
+      `evaluations(letter_grade,weighted_score,matching_skills,missing_skills,dimension_scores,resume_improvements,reason,archetype)` +
       `&status=eq.applied&order=applied_at.desc&limit=100`
     );
 
@@ -633,20 +656,31 @@ async function loadApplied() {
     // Merge: applied jobs + failed applications
     const rows = [
       // Applied jobs from jobs table
-      ...(Array.isArray(jobs) ? jobs : []).map(j => ({
-        type: 'applied',
-        applied_at: j.applied_at,
-        company: j.company,
-        title: j.title,
-        location: j.location,
-        platform: j.platform,
-        apply_link: j.apply_link,
-        letter_grade: j.evaluations?.[0]?.letter_grade || j.evaluations?.letter_grade,
-        weighted_score: j.evaluations?.[0]?.weighted_score || j.evaluations?.weighted_score,
-        screenshot_url: j.proof_url,
-        pdf_path: null,
-        failure_reason: null,
-      })),
+      ...(Array.isArray(jobs) ? jobs : []).map(j => {
+        const ev = Array.isArray(j.evaluations) ? j.evaluations[0] : j.evaluations;
+        return {
+          type: 'applied',
+          applied_at: j.applied_at,
+          company: j.company,
+          title: j.title,
+          location: j.location,
+          platform: j.platform,
+          apply_link: j.apply_link,
+          description: j.description,
+          letter_grade: ev?.letter_grade || null,
+          weighted_score: ev?.weighted_score || null,
+          matching_skills: ev?.matching_skills || [],
+          missing_skills: ev?.missing_skills || [],
+          dimension_scores: ev?.dimension_scores || {},
+          resume_improvements: ev?.resume_improvements || [],
+          reason: ev?.reason || '',
+          archetype: ev?.archetype || '',
+          screenshot_url: j.proof_url,
+          pdf_path: null,
+          failure_reason: null,
+          job_id: j.id,
+        };
+      }),
       // Failed applications from applications table
       ...(Array.isArray(failedApps) ? failedApps : []).map(a => ({
         type: 'failed',
@@ -693,6 +727,30 @@ async function loadApplied() {
 
       const scoreColor = { A:'#00d2a0', B:'#4da6ff', C:'#ffd93d', D:'#ff9f43', F:'#ff5252' }[r.letter_grade] || '#666';
 
+      // Dimension scores compact for applied table
+      const dims = r.dimension_scores || {};
+      const dimKeys = Object.keys(dims).slice(0, 5);
+      const dimLabels = { technical_skills: 'Tech', experience_level: 'Exp', education_fit: 'Edu', location_match: 'Loc', culture_fit: 'Fit' };
+      const dimBadges = dimKeys.map(k => {
+        const g = dims[k]?.grade || 'C';
+        const c = { A:'#00d2a0', B:'#4da6ff', C:'#ffd93d', D:'#ff9f43', F:'#ff5252' }[g] || '#666';
+        return `<span style="font-size:9px;padding:1px 4px;border-radius:3px;background:${c}22;color:${c};font-weight:600;">${dimLabels[k]||k.slice(0,4)}:${g}</span>`;
+      }).join(' ');
+
+      // ATS score as percentage
+      const atsPercent = r.weighted_score ? `${(r.weighted_score * 10).toFixed(0)}%` : '—';
+
+      // Resume improvements snippet
+      const resumeTip = (r.resume_improvements || [])[0];
+      const resumeHtml = resumeTip
+        ? `<span style="color:#4da6ff;font-size:11px;cursor:help;" title="${esc(resumeTip)}">📄 Tailored</span>`
+        : '<span style="color:#555;font-size:11px;">📄 Base</span>';
+
+      // Cold email status
+      const coldEmailHtml = r.type === 'applied'
+        ? `<span style="color:#ffd93d;font-size:11px;cursor:pointer;" title="Send follow-up email to ${esc(r.company)}">📧 Queue</span>`
+        : '<span style="color:#555;font-size:11px;">—</span>';
+
       return `
         <tr style="${r.type === 'failed' ? 'opacity:0.75;' : ''}">
           <td title="${dateStr}">
@@ -701,15 +759,18 @@ async function loadApplied() {
           </td>
           <td>${statusBadge}${failReason}</td>
           <td><strong>${esc(r.company || 'N/A')}</strong></td>
-          <td>${esc(r.title || 'N/A')}</td>
+          <td>
+            <div>${esc(r.title || 'N/A')}</div>
+            ${dimBadges ? `<div style="margin-top:3px;display:flex;gap:3px;flex-wrap:wrap;">${dimBadges}</div>` : ''}
+          </td>
           <td>📍 ${esc(r.location || 'N/A')}</td>
           <td>${platformIcon(r.platform)} ${esc(r.platform || 'N/A')}</td>
-          <td><span style="background:#333;color:#ccc;padding:2px 8px;border-radius:4px;font-size:11px;">GH</span></td>
-          <td><span class="grade-badge grade-${r.letter_grade}" style="font-size:12px;width:28px;height:28px;">${r.letter_grade || '?'}</span></td>
-          <td style="font-weight:600;color:${scoreColor}">${r.weighted_score ? r.weighted_score.toFixed(1) : '?'}/5</td>
+          <td><span style="background:#333;color:#ccc;padding:2px 8px;border-radius:4px;font-size:11px;">${esc(r.archetype || 'Auto')}</span></td>
+          <td><span class="grade-badge grade-${r.letter_grade}" style="font-size:12px;width:28px;height:28px;">${r.letter_grade || '—'}</span></td>
+          <td style="font-weight:600;color:${scoreColor}">${atsPercent}</td>
           <td>${proofHtml}</td>
-          <td>${r.pdf_path && r.pdf_path.includes('.pdf') ? `<a href="${r.pdf_path}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 PDF</a>` : '<span style="color:#555;font-size:12px;">—</span>'}</td>
-          <td>—</td>
+          <td>${resumeHtml}</td>
+          <td>${coldEmailHtml}</td>
           <td>${r.apply_link ? `<a href="${r.apply_link}" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View</a>` : '—'}</td>
         </tr>
       `;

@@ -1,0 +1,51 @@
+[14:48:04] 🚀 JobAuto Python Browser Applier starting...
+[14:48:04]   🌐 Using Chromium: l-1217/chrome-headless-shell-mac-arm64/chrome-headless-shell
+[14:48:05]   📋 Found 133 jobs in auto_queue
+[14:48:05] 
+🚀 Auto-applying to 6 jobs...
+
+[14:48:06] 
+━━━ Lead Data Scientist - Marketing @ Wise (London/Remote) ━━━
+[14:48:06]   🌐 Navigating to https://jobs.smartrecruiters.com/wise/744000127666009...
+[14:48:11]   🍪 Dismissed cookie banner
+[14:48:12]   🎯 SR Apply clicked: 'I'm interested'
+[14:48:17]   📋 Step 1: filling fields...
+[14:48:18]   ❌ Error: cannot access local variable 'time' where it is not associated with a value
+/Users/abhishek/Documents/jobauto/src/scripts/browser_apply.py:1092: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  "timestamp": datetime.utcnow().isoformat(),
+[14:48:18] 
+━━━ Senior Software Engineer- Continuous Delivery (CD) Platform  @ Wise (London/Remote) ━━━
+[14:48:18]   🌐 Navigating to https://jobs.smartrecruiters.com/wise/744000127695269...
+[14:48:23]   🎯 SR Apply clicked: 'I'm interested'
+[14:48:28]   📋 Step 1: filling fields...
+[14:48:29]   ❌ Error: cannot access local variable 'time' where it is not associated with a value
+[14:48:30] 
+━━━ Backend Software Engineer I @ Delivery Hero (Berlin) ━━━
+[14:48:30]   🌐 Navigating to https://jobs.smartrecruiters.com/deliveryhero/744000126903309...
+[14:48:34]   🎯 SR Apply clicked: 'I'm interested'
+[14:48:39]   📋 Step 1: filling fields...
+[14:48:40]   ❌ Error: cannot access local variable 'time' where it is not associated with a value
+[14:48:41] 
+━━━ Analytics Engineer I - AI & Data Enablement @ Delivery Hero (Berlin) ━━━
+[14:48:41]   🌐 Navigating to https://jobs.smartrecruiters.com/deliveryhero/744000127173820...
+[14:48:45]   🎯 SR Apply clicked: 'I'm interested'
+[14:48:50]   📋 Step 1: filling fields...
+[14:48:51]   ❌ Error: cannot access local variable 'time' where it is not associated with a value
+[14:48:51] 
+━━━ Software Engineer l - Full Stack @ Delivery Hero (Berlin) ━━━
+[14:48:52]   🌐 Navigating to https://jobs.smartrecruiters.com/deliveryhero/744000126976921...
+[14:48:56]   🎯 SR Apply clicked: 'I'm interested'
+[14:49:00]   📋 Step 1: filling fields...
+[14:49:02]   ❌ Error: cannot access local variable 'time' where it is not associated with a value
+[14:49:02] 
+━━━ Software Engineer - Java - Japanese Speaking  @ Wise (London/Remote) ━━━
+[14:49:02]   🌐 Navigating to https://jobs.smartrecruiters.com/wise/744000118822327...
+[14:49:07]   🎯 SR Apply clicked: 'I'm interested'
+[14:49:12]   📋 Step 1: filling fields...
+[14:49:13]   ❌ Error: cannot access local variable 'time' where it is not associated with a value
+[14:49:14] 
+==================================================
+[14:49:14] 📊 SUMMARY: ✅ Applied: 0 | ❌ Failed: 6 | ⏭️ Skipped: 0
+[14:49:14] ==================================================
+/Users/abhishek/Documents/jobauto/src/scripts/browser_apply.py:1123: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  

@@ -41,8 +41,10 @@ IDLE_INTERVAL = 30  # seconds between checks when not waiting
 # Senders that deliver OTP codes
 OTP_SENDERS = [
     "greenhouse.io",
+    "greenhouse-mail.io",
     "noreply@greenhouse.io",
     "no-reply@greenhouse.io",
+    "no-reply@us.greenhouse-mail.io",
     "anthropic.com",
     "contentful.com",
     "celonis.com",
@@ -57,6 +59,8 @@ OTP_SENDERS = [
     "spotify.com",
     "supabase.io",
     "supabase.com",
+    "adyen.com",
+    "gitlab.com",
     "careers@",
     "recruiting@",
     "noreply@",
@@ -167,26 +171,69 @@ def extract_otp_from_email(service, msg_id):
     if not is_otp_email:
         return None
 
-    print(f"  📧 OTP email detected from: {headers.get('from','?')}")
-    print(f"  📋 Subject: {subject}")
+    print(f"  📧 OTP email detected from: {headers.get('from','?')}", flush=True)
+    print(f"  📋 Subject: {subject}", flush=True)
 
-    # Try each pattern to extract code
-    full_text = subject + "\n" + body
-    for pattern in CODE_PATTERNS:
-        matches = re.findall(pattern, full_text, re.IGNORECASE)
-        if matches:
-            # Filter out common false-positives (URLs, dates, etc.)
-            for m in matches:
-                m = m.strip()
-                # Skip if it looks like a year or common word
-                if m.isdigit() and int(m) in range(2020, 2030):
-                    continue
-                if len(m) < 4:
-                    continue
-                print(f"  🔑 Extracted code: {m}")
+    # Common words to skip (these match 6-8 char alphanumeric but aren't codes)
+    SKIP_WORDS = {
+        "security", "confirm", "verify", "access", "submit", "please",
+        "company", "address", "account", "privacy", "consent", "process",
+        "general", "service", "support", "contact", "welcome", "applied",
+        "application", "resubmit", "greenhouse", "abhishek", "street",
+        "pagadala", "display", "entered", "provide", "collect",
+    }
+
+    # Strategy 1: Find code near contextual phrases (most reliable)
+    # Greenhouse format: "Copy and paste this code into the security code field on your application: CODE_HERE"
+    context_patterns = [
+        r'application[:\s]+([a-zA-Z0-9]{6,10})\s',
+        r'code[^a-zA-Z0-9]{0,50}?:\s*([a-zA-Z0-9]{6,10})',
+        r'(?:paste|enter|type)\s+(?:this\s+)?(?:code|the\s+code)[^:]*:\s*([a-zA-Z0-9]{6,10})',
+    ]
+    for cp in context_patterns:
+        m = re.search(cp, body, re.IGNORECASE)
+        if m:
+            code = m.group(1).strip()
+            if code.lower() not in SKIP_WORDS:
+                print(f"  🔑 Extracted code (context): {code}", flush=True)
+                return code
+
+    # Strategy 2: Find isolated 8-char token that's NOT a common word
+    # Greenhouse codes are exactly 8 chars, mixed case with uppercase
+    for text_source in [body, subject]:
+        if not text_source:
+            continue
+        for m in re.findall(r'\b([a-zA-Z0-9]{8})\b', text_source):
+            if m.lower() in SKIP_WORDS:
+                continue
+            # Must have at least one uppercase letter (codes like zGsobPvQ, IFNiCrF3)
+            if any(c.isupper() for c in m) and not m.isupper():
+                print(f"  🔑 Extracted code (8-char): {m}", flush=True)
                 return m
 
-    print("  ⚠️  Could not extract code from email body")
+    # Strategy 3: Fallback to generic patterns
+    for text_source in [body, subject]:
+        if not text_source:
+            continue
+        for pattern in CODE_PATTERNS:
+            matches = re.findall(pattern, text_source, re.IGNORECASE)
+            for m in matches:
+                m = m.strip()
+                if len(m) < 6:
+                    continue
+                if m.lower() in SKIP_WORDS:
+                    continue
+                if m.isdigit() and int(m) in range(2020, 2030):
+                    continue
+                # At least has mixed case or mixed alpha-num
+                has_upper = any(c.isupper() for c in m)
+                has_lower = any(c.islower() for c in m)
+                has_digit = any(c.isdigit() for c in m)
+                if (has_upper and has_lower) or has_digit:
+                    print(f"  🔑 Extracted code (fallback): {m}", flush=True)
+                    return m
+
+    print("  ⚠️  Could not extract code from email body", flush=True)
     return None
 
 
@@ -249,21 +296,21 @@ def watch(service):
                 if wait_start is None:
                     wait_start = time.time()
                     signal_content = SIGNAL_FILE.read_text().strip()
-                    print(f"\n🔔 [{datetime.now().strftime('%H:%M:%S')}] Pipeline waiting for code!")
-                    print(f"   {signal_content}")
+                    print(f"\n🔔 [{datetime.now().strftime('%H:%M:%S')}] Pipeline waiting for code!", flush=True)
+                    print(f"   {signal_content}", flush=True)
                     print(f"   Scanning Gmail every {POLL_INTERVAL}s...")
 
                 # Check Gmail for new OTP
-                code = check_for_otp(service, since_timestamp=wait_start - 30)
+                code = check_for_otp(service, since_timestamp=wait_start - 1800)
                 if code:
                     OUTPUT_FILE.write_text(code)
-                    print(f"\n✅ [{datetime.now().strftime('%H:%M:%S')}] Code written: {code}")
+                    print(f"\n✅ [{datetime.now().strftime('%H:%M:%S')}] Code written: {code}", flush=True)
                     print(f"   Pipeline will pick it up automatically")
                     wait_start = None  # Reset for next job
                     time.sleep(5)  # Brief pause before next check
                 else:
                     elapsed = int(time.time() - wait_start)
-                    print(f"   [{datetime.now().strftime('%H:%M:%S')}] No code found yet ({elapsed}s elapsed)...")
+                    print(f"   [{datetime.now().strftime('%H:%M:%S')}] No code found yet ({elapsed}s elapsed)...", flush=True)
                     time.sleep(POLL_INTERVAL)
 
             else:
