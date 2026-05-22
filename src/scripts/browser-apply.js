@@ -51,6 +51,39 @@ async function sendDiscordEmbed(embed) {
   } catch {}
 }
 
+// ── Gemini fallback (1M tokens/day free — used when all Groq models hit TPD) ──────────────
+async function callGemini(systemPrompt, userPrompt) {
+  if (!process.env.GEMINI_API_KEY) {
+    console.log('  ⚠️ GEMINI_API_KEY not set — cannot use Gemini fallback');
+    return '{}';
+  }
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 1500, responseMimeType: 'application/json' },
+        }),
+      }
+    );
+    if (!res.ok) {
+      const errText = await res.text();
+      console.log(`  ⚠️ Gemini API Error: ${res.status} - ${errText.substring(0, 150)}`);
+      return '{}';
+    }
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    console.log(`  ✅ Gemini 1.5 Flash responded (${text.length} chars)`);
+    return text;
+  } catch (e) {
+    console.log(`  ⚠️ Gemini call failed: ${e.message}`);
+    return '{}';
+  }
+}
+
 async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant') {
   if (!process.env.GROQ_API_KEY) return '{}';
   try {
@@ -96,8 +129,8 @@ async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant'
       //   llama-3.1-8b-instant : 500k TPD  (default)
       //   gemma2-9b-it         : 500k TPD  (fallback #1)
       //   llama3-8b-8192       : 500k TPD  (fallback #2)
-      //   → skip AI tailoring  (apply anyway with base resume)
-      // NOTE: llama-3.3-70b only has 100k TPD so it's NOT used for TPD recovery
+      //   Gemini 1.5 Flash     : 1M  TPD   (fallback #3 — virtually unlimited)
+      //   → apply with base resume          (last resort)
       if (res.status === 429 && errText.includes('TPD')) {
         if (model === 'llama-3.1-8b-instant') {
           console.log(`  🔄 8b TPD limit → trying gemma2-9b-it...`);
@@ -107,7 +140,11 @@ async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant'
           console.log(`  🔄 gemma2 TPD limit → trying llama3-8b-8192...`);
           return await callGroq(systemPrompt, userPrompt, 'llama3-8b-8192');
         }
-        console.log(`  ⚠️ All free models hit daily limit. Applying with base resume...`);
+        if (model === 'llama3-8b-8192') {
+          console.log(`  🔄 All Groq models hit daily limit → trying Gemini 1.5 Flash...`);
+          return await callGemini(systemPrompt, userPrompt);
+        }
+        console.log(`  ⚠️ All AI models hit daily limit. Applying with base resume...`);
         return '{}';
       }
       
