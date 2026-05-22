@@ -7,7 +7,7 @@ let debounceTimer = null;
 
 // Supabase connection — used by all data loaders
 const SUPABASE_URL = 'https://swscpdtchfjyzpjhwqqj.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3c2NwZHRjaGZqeXpwamh3cXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxMzk2OTEsImV4cCI6MjA2MTcxNTY5MX0.v_V_jUGXfxiMFvt8gSJWn7PXN4TzjJBbQH7pWTbDHZ8';
+const SUPABASE_ANON = 'sb_publishable_HC_f6ysdIX4B8p4vS9vrGQ_yil68Eb6';
 
 async function sbFetch(path) {
   const res = await fetch(SUPABASE_URL + path, {
