@@ -254,15 +254,24 @@ Deal breakers: ${dealBreakers.join(', ')}
   console.log(`   Errors:       ${results.errors}`);
   console.log('');
 
-  // Promote any 'new' status jobs (from previous runs) to auto_queue
-  // so the backlog doesn't sit idle
-  const { data: promoted, error: promErr } = await supabase
-    .from('jobs')
-    .update({ status: 'auto_queue', updated_at: new Date().toISOString() })
-    .eq('status', 'new')
-    .select('id');
-  if (!promErr && promoted?.length > 0) {
-    console.log(`   ♻️  Promoted ${promoted.length} existing 'new' jobs → auto_queue`);
+  // Promote 'new' jobs that HAVE evaluations → auto_queue
+  // (never promote jobs without evaluations to avoid ? scores)
+  const { data: evaledNew } = await supabase
+    .from('evaluations')
+    .select('job_id')
+    .not('job_id', 'is', null);
+  const evaledJobIds = (evaledNew || []).map(e => e.job_id);
+
+  if (evaledJobIds.length > 0) {
+    const { data: promoted, error: promErr } = await supabase
+      .from('jobs')
+      .update({ status: 'auto_queue', updated_at: new Date().toISOString() })
+      .eq('status', 'new')
+      .in('id', evaledJobIds)
+      .select('id');
+    if (!promErr && promoted?.length > 0) {
+      console.log(`   ♻️  Promoted ${promoted.length} evaluated 'new' jobs → auto_queue`);
+    }
   }
 }
 

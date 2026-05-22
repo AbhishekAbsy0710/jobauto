@@ -758,6 +758,8 @@ def apply_to_job(page, context, job, resume_path):
     max_steps = 8
     prev_url = page.url
     submitted = False
+    prev_content_hash = None
+    stuck_count = 0
 
     for step in range(max_steps):
         log(f"  📋 Step {step + 1}: filling fields...")
@@ -820,6 +822,27 @@ def apply_to_job(page, context, job, resume_path):
             return False, "Validation Error / No advance button", s_path
 
         wait(2000)
+
+        # Stuck-loop detection: if page content hasn't changed after clicking Next,
+        # we're stuck on a validation error or infinite loop — bail out
+        try:
+            import hashlib
+            curr_content = page.inner_text("body") or ""
+            curr_hash = hashlib.md5(curr_content[:3000].encode()).hexdigest()
+            if curr_hash == prev_content_hash:
+                stuck_count += 1
+                log(f"  ⚠️ Page unchanged after click ({stuck_count}/3)")
+                if stuck_count >= 3:
+                    ts = int(time.time())
+                    s_path = f"debug_stuck_{ts}.png"
+                    page.screenshot(path=s_path)
+                    log("  ❌ Stuck in form loop — aborting")
+                    return False, "Stuck in form loop (validation error)", s_path
+            else:
+                stuck_count = 0
+            prev_content_hash = curr_hash
+        except Exception:
+            pass
 
         # Handle Greenhouse OTP if present
         try:
