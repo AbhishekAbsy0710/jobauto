@@ -5,6 +5,17 @@
 let allJobs = [];
 let debounceTimer = null;
 
+// Supabase connection — used by all data loaders
+const SUPABASE_URL = 'https://swscpdtchfjyzpjhwqqj.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3c2NwZHRjaGZqeXpwamh3cXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxMzk2OTEsImV4cCI6MjA2MTcxNTY5MX0.v_V_jUGXfxiMFvt8gSJWn7PXN4TzjJBbQH7pWTbDHZ8';
+
+async function sbFetch(path) {
+  const res = await fetch(SUPABASE_URL + path, {
+    headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
+  });
+  return res.json();
+}
+
 // ============================================
 // INIT
 // ============================================
@@ -20,44 +31,71 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================
 async function checkHealth() {
   try {
-    const res = await fetch('/api/health');
-    const data = await res.json();
+    // Check Supabase connectivity
+    const res = await fetch(SUPABASE_URL + '/rest/v1/jobs?select=id&limit=1', {
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
+    });
     const dot = document.querySelector('.health-dot');
     const text = document.getElementById('health-text');
 
-    if (data.llm === 'groq') {
+    if (res.ok) {
       dot.classList.add('online');
       dot.classList.remove('offline');
-      text.textContent = 'Groq API Active';
+      text.textContent = 'Supabase Connected';
     } else {
       dot.classList.add('offline');
       dot.classList.remove('online');
-      text.textContent = 'Groq API Missing';
+      text.textContent = 'Supabase Error';
     }
   } catch {
     const dot = document.querySelector('.health-dot');
     dot.classList.add('offline');
-    document.getElementById('health-text').textContent = 'Server Error';
+    document.getElementById('health-text').textContent = 'Connection Error';
   }
 }
 
 // ============================================
-// STATS
+// STATS — reads from Supabase directly
 // ============================================
 async function loadStats() {
   try {
-    const res = await fetch('/api/stats');
-    const s = await res.json();
+    // Total jobs — use count for accuracy
+    const jobsRes = await fetch(SUPABASE_URL + '/rest/v1/jobs?select=id,status', {
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON, 'Range': '0-9999' }
+    });
+    const allJobsData = await jobsRes.json();
+    const total = Array.isArray(allJobsData) ? allJobsData.length : 0;
+    const applied = allJobsData.filter(j => j.status === 'applied').length;
+    const interviews = allJobsData.filter(j => j.status === 'interview').length;
 
-    document.getElementById('sv-total').textContent = s.total_jobs || 0;
-    document.getElementById('sv-apply').textContent = s.auto_apply || 0;
-    document.getElementById('sv-review').textContent = s.manual_apply || 0;
-    document.getElementById('sv-skip').textContent = s.ignored || 0;
-    document.getElementById('sv-applied').textContent = s.applied || 0;
-    document.getElementById('sv-interviews').textContent = s.interviews || 0;
-    document.getElementById('sv-avg').textContent = s.avg_match || 0;
+    // Evaluations for grades, archetypes, scores
+    const evalsRes = await fetch(SUPABASE_URL + '/rest/v1/evaluations?select=letter_grade,weighted_score,archetype,action', {
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
+    });
+    const evals = await evalsRes.json();
+    const evaluated = evals.length;
+    const autoApply = evals.filter(e => e.action === 'auto_queue' || e.action === 'Apply').length;
+    const manualApply = evals.filter(e => e.action === 'manual_queue' || e.action === 'Review').length;
+    const ignored = evals.filter(e => e.action === 'skip' || e.action === 'Skip').length;
+    const scores = evals.map(e => e.weighted_score).filter(s => s > 0);
+    const avgMatch = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : 0;
 
-    renderGradeBar(s.grades || []);
+    // Grade distribution
+    const gradeCounts = {};
+    evals.forEach(e => {
+      if (e.letter_grade) gradeCounts[e.letter_grade] = (gradeCounts[e.letter_grade] || 0) + 1;
+    });
+    const grades = Object.entries(gradeCounts).map(([letter_grade, count]) => ({ letter_grade, count }));
+
+    document.getElementById('sv-total').textContent = total;
+    document.getElementById('sv-apply').textContent = autoApply;
+    document.getElementById('sv-review').textContent = manualApply;
+    document.getElementById('sv-skip').textContent = ignored;
+    document.getElementById('sv-applied').textContent = applied;
+    document.getElementById('sv-interviews').textContent = interviews;
+    document.getElementById('sv-avg').textContent = avgMatch;
+
+    renderGradeBar(grades);
   } catch (e) {
     console.error('Stats error:', e);
   }
@@ -85,17 +123,39 @@ function filterByGrade(grade) {
 }
 
 // ============================================
-// JOBS LIST
+// JOBS LIST — reads from Supabase directly
 // ============================================
 async function loadJobs() {
   try {
-    const res = await fetch('/api/jobs?limit=300');
-    allJobs = await res.json();
+    const jobs = await sbFetch(
+      `/rest/v1/jobs?select=id,title,company,platform,location,apply_link,status,remote,scraped_at,description,` +
+      `evaluations(id,letter_grade,weighted_score,archetype,matching_skills,missing_skills,resume_improvements,dimension_scores,star_stories,reason,action,priority)` +
+      `&order=scraped_at.desc&limit=300`
+    );
+    // Flatten evaluation data onto job object for rendering compatibility
+    allJobs = jobs.map(j => {
+      const ev = Array.isArray(j.evaluations) ? j.evaluations[0] : j.evaluations;
+      return {
+        ...j,
+        letter_grade: ev?.letter_grade || null,
+        weighted_score: ev?.weighted_score || null,
+        archetype: ev?.archetype || null,
+        matching_skills: ev?.matching_skills || [],
+        missing_skills: ev?.missing_skills || [],
+        resume_improvements: ev?.resume_improvements || [],
+        dimension_scores: ev?.dimension_scores || {},
+        star_stories: ev?.star_stories || [],
+        reason: ev?.reason || '',
+        action: ev?.action || '',
+        priority: ev?.priority || '',
+      };
+    });
     renderJobs(allJobs);
     document.getElementById('loading-state')?.remove();
   } catch (e) {
+    console.error('Jobs load error:', e);
     document.getElementById('job-grid').innerHTML =
-      '<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Connection Error</h3><p>Could not reach the API server.</p></div>';
+      '<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Connection Error</h3><p>Could not reach Supabase.</p></div>';
   }
 }
 
@@ -190,9 +250,14 @@ function filterJobs() {
 // ============================================
 async function openJobModal(id) {
   try {
-    const res = await fetch(`/api/jobs?id=${id}`);
-    const job = await res.json();
-    const ev = job.evaluation;
+    // Fetch directly from Supabase instead of local Express API
+    const jobs = await sbFetch(
+      `/rest/v1/jobs?select=*,evaluations(*)&id=eq.${id}&limit=1`
+    );
+    const rawJob = Array.isArray(jobs) ? jobs[0] : jobs;
+    if (!rawJob) return;
+    const ev = Array.isArray(rawJob.evaluations) ? rawJob.evaluations[0] : rawJob.evaluations;
+    const job = { ...rawJob, evaluation: ev };
 
     const dims = ev?.dimension_scores || {};
     const dimHtml = Object.entries(dims).map(([key, val]) => {
@@ -243,7 +308,7 @@ async function openJobModal(id) {
       <div style="background:rgba(255, 69, 0, 0.1); border-left: 4px solid #ff4500; padding: 12px; border-radius: 4px; margin-bottom: 16px;">
         <div style="color: #ff4500; font-weight: bold; margin-bottom: 4px;">⚠️ Auto-Apply Failed</div>
         <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;"><strong>Reason:</strong> ${esc(latestFail.method || 'Unknown Validation Error')}</div>
-        ${latestFail.screenshot_url ? `<a href="${latestFail.screenshot_url}" target="_blank" style="color: #ff4500; text-decoration: underline; font-size: 12px;">📸 View Screenshot of Failure</a>` : (latestFail.pdf_path ? `<a href="${latestFail.pdf_path}" target="_blank" style="color: #4da6ff; text-decoration: underline; font-size: 12px;">📄 View Tailored Resume</a>` : '')}
+        ${latestFail.pdf_path ? `<a href="${latestFail.pdf_path}" target="_blank" style="color: #ff4500; text-decoration: underline; font-size: 12px;">📸 View Screenshot of Failure</a>` : ''}
       </div>
     ` : '';
 
@@ -542,82 +607,116 @@ function switchTab(tab) {
 }
 
 // ============================================
-// LOAD APPLIED JOBS
+// LOAD APPLIED JOBS — reads directly from Supabase
 // ============================================
 async function loadApplied() {
+  const tbody   = document.getElementById('applied-tbody');
+  const empty   = document.getElementById('applied-empty');
+  const countEl = document.getElementById('applied-count');
+  tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:24px;color:var(--text-muted)">⏳ Loading…</td></tr>';
+
   try {
-    const res = await fetch('/api/applications');
-    const apps = await res.json();
-    const tbody = document.getElementById('applied-tbody');
-    const empty = document.getElementById('applied-empty');
-    const count = document.getElementById('applied-count');
+    // Pull applied jobs with evaluation data directly from Supabase
+    const jobs = await sbFetch(
+      `/rest/v1/jobs?select=id,title,company,location,platform,apply_link,applied_at,status,proof_url,` +
+      `evaluations(letter_grade,weighted_score,matching_skills)` +
+      `&status=eq.applied&order=applied_at.desc&limit=100`
+    );
 
-    count.textContent = apps.length + ' applications';
+    // Also load failed applications from the applications table
+    const failedApps = await sbFetch(
+      `/rest/v1/applications?select=id,method,status,pdf_path,screenshot_url,applied_at,` +
+      `evaluation_id,evaluations(letter_grade,weighted_score,jobs(id,title,company,location,platform,apply_link))` +
+      `&status=eq.failed&order=applied_at.desc&limit=50`
+    );
 
-    if (apps.length === 0) {
+    // Merge: applied jobs + failed applications
+    const rows = [
+      // Applied jobs from jobs table
+      ...(Array.isArray(jobs) ? jobs : []).map(j => ({
+        type: 'applied',
+        applied_at: j.applied_at,
+        company: j.company,
+        title: j.title,
+        location: j.location,
+        platform: j.platform,
+        apply_link: j.apply_link,
+        letter_grade: j.evaluations?.[0]?.letter_grade || j.evaluations?.letter_grade,
+        weighted_score: j.evaluations?.[0]?.weighted_score || j.evaluations?.weighted_score,
+        screenshot_url: j.proof_url,
+        pdf_path: null,
+        failure_reason: null,
+      })),
+      // Failed applications from applications table
+      ...(Array.isArray(failedApps) ? failedApps : []).map(a => ({
+        type: 'failed',
+        applied_at: a.applied_at,
+        company: a.evaluations?.jobs?.company,
+        title: a.evaluations?.jobs?.title,
+        location: a.evaluations?.jobs?.location,
+        platform: a.evaluations?.jobs?.platform,
+        apply_link: a.evaluations?.jobs?.apply_link,
+        letter_grade: a.evaluations?.letter_grade,
+        weighted_score: a.evaluations?.weighted_score,
+        screenshot_url: a.screenshot_url,
+        pdf_path: a.pdf_path,
+        failure_reason: a.method,
+      })),
+    ].sort((a, b) => new Date(b.applied_at) - new Date(a.applied_at));
+
+    countEl.textContent = rows.filter(r => r.type === 'applied').length + ' applied · ' +
+                          rows.filter(r => r.type === 'failed').length + ' failed';
+
+    if (rows.length === 0) {
       tbody.innerHTML = '';
       empty.style.display = '';
       return;
     }
     empty.style.display = 'none';
 
-    tbody.innerHTML = apps.map(a => {
-      const date = new Date(a.applied_at);
-      const timeAgo = getTimeAgo(date);
-      const dateStr = date.toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'});
-      const methodColors = { auto: '#00d2a0', manual: '#4da6ff' };
-      const methodBg = methodColors[a.method] || '#666';
+    tbody.innerHTML = rows.map(r => {
+      const date    = r.applied_at ? new Date(r.applied_at) : null;
+      const dateStr = date ? date.toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'}) : '—';
+      const timeAgo = date ? getTimeAgo(date) : '';
 
-      // Status badge
-      const statusBadge = a.app_status === 'applied' || a.app_status === 'submitted'
-        ? '<span style="background:#00d2a0;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">✅ DISPATCHED</span>'
-        : a.app_status === 'failed'
-          ? '<span style="background:#ff5252;color:#fff;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">❌ FAILED</span>'
-          : '<span style="background:#ffd93d;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">⏳ PENDING</span>';
+      const statusBadge = r.type === 'applied'
+        ? '<span style="background:#00d2a0;color:#000;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">✅ APPLIED</span>'
+        : '<span style="background:#ff5252;color:#fff;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;">❌ FAILED</span>';
 
-      // Tailored resume link
-      const resumeLink = a.pdf_path
-        ? `<a href="${a.pdf_path && a.pdf_path.startsWith('http') ? a.pdf_path : '/api/resume'}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 View PDF</a>`
-        : '—';
+      const proofHtml = r.screenshot_url
+        ? `<a href="${r.screenshot_url}" target="_blank" style="color:#00d2a0;text-decoration:none;font-size:12px;" title="View proof screenshot">📸 Proof</a>`
+        : '<span style="color:#555;font-size:12px;">—</span>';
 
-      // Screenshot proof link — uses screenshot_url column (NEVER pdf_path which is the resume)
-      let screenshotHtml = '—';
-      if (a.app_status === 'submitted' || a.app_status === 'applied') {
-        if (a.screenshot_url) {
-          screenshotHtml = `<a href="${a.screenshot_url}" target="_blank" style="color:#00d2a0;text-decoration:none;font-size:12px;" title="View submission proof">📸 Proof</a>`;
-        } else {
-          screenshotHtml = `<span style="color:#888;font-size:12px;">📸 N/A</span>`;
-        }
-      } else if (a.app_status === 'failed') {
-        if (a.screenshot_url) {
-          screenshotHtml = `<a href="${a.screenshot_url}" target="_blank" style="color:#ff5252;text-decoration:none;font-size:12px;" title="View failure screenshot">📸 Error</a>`;
-        } else {
-          screenshotHtml = `<span style="color:#888;font-size:12px;">📸 N/A</span>`;
-        }
-      }
+      const failReason = r.failure_reason
+        ? `<div style="font-size:11px;color:#ff7070;margin-top:3px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.failure_reason)}">${esc((r.failure_reason||'').substring(0,40))}${r.failure_reason?.length > 40 ? '…' : ''}</div>`
+        : '';
+
+      const scoreColor = { A:'#00d2a0', B:'#4da6ff', C:'#ffd93d', D:'#ff9f43', F:'#ff5252' }[r.letter_grade] || '#666';
 
       return `
-        <tr>
+        <tr style="${r.type === 'failed' ? 'opacity:0.75;' : ''}">
           <td title="${dateStr}">
             <div style="font-weight:500;font-size:12px;">${dateStr}</div>
             <div style="font-size:11px;color:var(--text-muted);">${timeAgo}</div>
           </td>
-          <td>${statusBadge}</td>
-          <td><strong>${esc(a.company || 'N/A')}</strong></td>
-          <td>${esc(a.title || 'N/A')}</td>
-          <td>📍 ${esc(a.location || 'N/A')}</td>
-          <td>${platformIcon(a.platform)} ${esc(a.platform || 'N/A')}</td>
-          <td><span style="background:${methodBg};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${(a.method ? a.method.split('|')[0].trim() : 'manual').toUpperCase()}</span></td>
-          <td><span class="grade-badge grade-${a.letter_grade}" style="font-size:12px;width:28px;height:28px;">${a.letter_grade || '?'}</span></td>
-          <td style="font-weight:600;">${a.weighted_score ? a.weighted_score.toFixed(1) : '?'}/5</td>
-          <td>${screenshotHtml}</td>
-          <td>${resumeLink}</td>
-          <td>${a.apply_link ? '<a href="' + a.apply_link + '" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View Job</a>' : '—'}</td>
+          <td>${statusBadge}${failReason}</td>
+          <td><strong>${esc(r.company || 'N/A')}</strong></td>
+          <td>${esc(r.title || 'N/A')}</td>
+          <td>📍 ${esc(r.location || 'N/A')}</td>
+          <td>${platformIcon(r.platform)} ${esc(r.platform || 'N/A')}</td>
+          <td><span style="background:#333;color:#ccc;padding:2px 8px;border-radius:4px;font-size:11px;">GH</span></td>
+          <td><span class="grade-badge grade-${r.letter_grade}" style="font-size:12px;width:28px;height:28px;">${r.letter_grade || '?'}</span></td>
+          <td style="font-weight:600;color:${scoreColor}">${r.weighted_score ? r.weighted_score.toFixed(1) : '?'}/5</td>
+          <td>${proofHtml}</td>
+          <td>${r.pdf_path && r.pdf_path.includes('.pdf') ? `<a href="${r.pdf_path}" target="_blank" style="color:#4da6ff;text-decoration:none;font-size:12px;">📄 PDF</a>` : '<span style="color:#555;font-size:12px;">—</span>'}</td>
+          <td>—</td>
+          <td>${r.apply_link ? `<a href="${r.apply_link}" target="_blank" style="color:#00d2a0;text-decoration:none;">🔗 View</a>` : '—'}</td>
         </tr>
       `;
     }).join('');
   } catch (e) {
     console.error('Failed to load applications:', e);
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;padding:24px;color:#ff5252;">⚠️ Error: ${e.message}<br><small>Check browser console</small></td></tr>`;
   }
 }
 
