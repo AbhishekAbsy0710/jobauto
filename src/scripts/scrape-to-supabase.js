@@ -24,36 +24,120 @@ const supabase = createClient(
 
 // ── Groq evaluator ────────────────────────────────────────────────────────────
 async function evaluateJob(job, profileText) {
-  try {
-    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-      body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',   // 500k tokens/day vs 100k for 70b — scraper burns too many tokens
-        temperature: 0.1,
-        max_tokens: 400,
-        messages: [
-          {
-            role: 'system',
-            content: `You are a job-fit evaluator. Return ONLY valid JSON in this exact shape:
-{"score":0-100,"grade":"A"|"B"|"C"|"D","action":"auto_queue"|"manual_queue"|"skip","reason":"1 sentence"}`
-          },
-          {
-            role: 'user',
-            content: `PROFILE:\n${profileText}\n\nJOB TITLE: ${job.title}\nCOMPANY: ${job.company}\nLOCATION: ${job.location}\nDESCRIPTION:\n${(job.description || '').slice(0, 1200)}`
-          }
-        ]
-      })
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const text = data.choices?.[0]?.message?.content || '';
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    return JSON.parse(match[0]);
-  } catch {
-    return null;
+  // Try Gemini first (free, 1500 req/day, richer output), fallback to Groq
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY;
+
+  const richPrompt = `You are an expert ATS job-fit evaluator. Analyze the candidate profile against the job description.
+Return ONLY valid JSON in this EXACT shape (no markdown, no explanation):
+{
+  "score": <0-100 integer>,
+  "grade": "<A|B|C|D|F>",
+  "action": "<auto_queue|manual_queue|skip>",
+  "reason": "<2-3 sentence assessment>",
+  "archetype": "<one of: Backend|Frontend|Fullstack|DevOps|Cloud|Data|AI|Mobile|Security|Other>",
+  "risk_level": "<low|medium|high>",
+  "priority": "<high|medium|low>",
+  "matching_skills": ["skill1","skill2","skill3","skill4","skill5"],
+  "missing_skills": ["skill1","skill2"],
+  "dimension_scores": {
+    "technical_skills": {"grade":"<A-F>","reason":"<1 sentence>"},
+    "experience_level": {"grade":"<A-F>","reason":"<1 sentence>"},
+    "education_fit": {"grade":"<A-F>","reason":"<1 sentence>"},
+    "location_match": {"grade":"<A-F>","reason":"<1 sentence>"},
+    "culture_fit": {"grade":"<A-F>","reason":"<1 sentence>"}
+  },
+  "resume_improvements": ["improvement1","improvement2","improvement3"],
+  "star_stories": [{"situation":"<context>","task":"<challenge>","action":"<what to do>","result":"<expected outcome>"}]
+}
+
+Grading rules:
+- A (85-100): Strong match, 80%+ skills match, relevant experience
+- B (70-84): Good match, 60%+ skills match
+- C (50-69): Partial match, some transferable skills
+- D (30-49): Weak match, significant gaps
+- F (0-29): No match
+
+action rules: A/B → "auto_queue", C → "manual_queue", D/F → "skip"`;
+
+  const userMsg = `CANDIDATE PROFILE:\n${profileText}\n\nJOB TITLE: ${job.title}\nCOMPANY: ${job.company}\nLOCATION: ${job.location}\nDESCRIPTION:\n${(job.description || '').slice(0, 2500)}`;
+
+  // --- Try Gemini first ---
+  if (geminiKey) {
+    try {
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: richPrompt + '\n\n' + userMsg }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 1200, responseMimeType: 'application/json' }
+          })
+        }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          parsed._model = 'gemini-2.0-flash';
+          parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
+          return parsed;
+        }
+      }
+    } catch { /* fall through to Groq */ }
   }
+
+  // --- Fallback: Groq/Llama ---
+  if (groqKey) {
+    try {
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          temperature: 0.1,
+          max_tokens: 1200,
+          messages: [
+            { role: 'system', content: richPrompt },
+            { role: 'user', content: userMsg }
+          ]
+        })
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const text = data.choices?.[0]?.message?.content || '';
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) return null;
+      const parsed = JSON.parse(match[0]);
+      parsed._model = 'llama-3.1-8b';
+      parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
+      return parsed;
+    } catch { return null; }
+  }
+
+  return null;
+}
+
+// Normalize dimension_scores: Groq may return numbers (90), Gemini returns {grade, reason}
+function normalizeDimensions(dims) {
+  if (!dims || typeof dims !== 'object') return {};
+  const result = {};
+  for (const [key, val] of Object.entries(dims)) {
+    if (typeof val === 'number') {
+      const g = val >= 85 ? 'A' : val >= 70 ? 'B' : val >= 50 ? 'C' : val >= 30 ? 'D' : 'F';
+      result[key] = { grade: g, reason: `Score: ${val}/100` };
+    } else if (typeof val === 'object' && val.grade) {
+      result[key] = val;
+    } else if (typeof val === 'string') {
+      result[key] = { grade: val, reason: '' };
+    } else {
+      result[key] = { grade: 'C', reason: 'Unknown' };
+    }
+  }
+  return result;
 }
 
 // ── Deal-breaker check ────────────────────────────────────────────────────────
@@ -133,15 +217,15 @@ async function upsertJob(job, evaluation) {
         weighted_score: evaluation.score / 10,
         match_percentage: evaluation.score,
         action: evaluation.action,
-        priority: evaluation.grade === 'A' ? 'high' : evaluation.grade === 'B' ? 'medium' : 'low',
-        risk_level: 'low',
+        priority: evaluation.priority || (evaluation.grade === 'A' ? 'high' : evaluation.grade === 'B' ? 'medium' : 'low'),
+        risk_level: evaluation.risk_level || 'low',
         reason: evaluation.reason,
-        archetype: 'AI-Evaluated',
-        matching_skills: [],
-        missing_skills: [],
-        resume_improvements: [],
-        dimension_scores: {},
-        star_stories: [],
+        archetype: evaluation.archetype || 'Other',
+        matching_skills: evaluation.matching_skills || [],
+        missing_skills: evaluation.missing_skills || [],
+        resume_improvements: evaluation.resume_improvements || [],
+        dimension_scores: evaluation.dimension_scores || {},
+        star_stories: evaluation.star_stories || [],
         evaluated_at: new Date().toISOString(),
       });
     } catch { /* ignore duplicate inserts */ }
