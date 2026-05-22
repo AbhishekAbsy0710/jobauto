@@ -59,12 +59,12 @@ async function checkHealth() {
 // ============================================
 async function loadStats() {
   try {
-    // Total jobs
+    // Total jobs — use count for accuracy
     const jobsRes = await fetch(SUPABASE_URL + '/rest/v1/jobs?select=id,status', {
-      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON, 'Range': '0-9999' }
     });
     const allJobsData = await jobsRes.json();
-    const total = allJobsData.length;
+    const total = Array.isArray(allJobsData) ? allJobsData.length : 0;
     const applied = allJobsData.filter(j => j.status === 'applied').length;
     const interviews = allJobsData.filter(j => j.status === 'interview').length;
 
@@ -74,9 +74,9 @@ async function loadStats() {
     });
     const evals = await evalsRes.json();
     const evaluated = evals.length;
-    const autoApply = evals.filter(e => e.action === 'Apply').length;
-    const manualApply = evals.filter(e => e.action === 'Review').length;
-    const ignored = evals.filter(e => e.action === 'Skip').length;
+    const autoApply = evals.filter(e => e.action === 'auto_queue' || e.action === 'Apply').length;
+    const manualApply = evals.filter(e => e.action === 'manual_queue' || e.action === 'Review').length;
+    const ignored = evals.filter(e => e.action === 'skip' || e.action === 'Skip').length;
     const scores = evals.map(e => e.weighted_score).filter(s => s > 0);
     const avgMatch = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : 0;
 
@@ -250,9 +250,14 @@ function filterJobs() {
 // ============================================
 async function openJobModal(id) {
   try {
-    const res = await fetch(`/api/jobs?id=${id}`);
-    const job = await res.json();
-    const ev = job.evaluation;
+    // Fetch directly from Supabase instead of local Express API
+    const jobs = await sbFetch(
+      `/rest/v1/jobs?select=*,evaluations(*)&id=eq.${id}&limit=1`
+    );
+    const rawJob = Array.isArray(jobs) ? jobs[0] : jobs;
+    if (!rawJob) return;
+    const ev = Array.isArray(rawJob.evaluations) ? rawJob.evaluations[0] : rawJob.evaluations;
+    const job = { ...rawJob, evaluation: ev };
 
     const dims = ev?.dimension_scores || {};
     const dimHtml = Object.entries(dims).map(([key, val]) => {
