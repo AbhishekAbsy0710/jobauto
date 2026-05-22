@@ -1392,14 +1392,16 @@ async function main() {
   // (3-day window was excluding ALL existing Anthropic/Grafana/xAI jobs)
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
+  const isLocal = process.env.LOCAL_RUN === 'true';
   let query = supabase
     .from('jobs')
     .select('*, evaluations(id, letter_grade, weighted_score)')
     .eq('status', 'auto_queue')
-    .gte('scraped_at', thirtyDaysAgo)
-    .not('apply_link', 'ilike', '%greenhouse%')   // GHA IPs blocked by Cloudflare on greenhouse.io
-    .order('scraped_at', { ascending: false })
-    .limit(200); // fetch 200 to ensure diversity across all companies
+    .gte('scraped_at', thirtyDaysAgo);
+  // On GHA exclude Greenhouse (Cloudflare blocks datacenter IPs)
+  // On local Mac (LOCAL_RUN=true), include Greenhouse — home IP not blocked
+  if (!isLocal) query = query.not('apply_link', 'ilike', '%greenhouse%');
+  query = query.order('scraped_at', { ascending: false }).limit(200);
 
   // TEST MODE: restrict to a single job ID for safe testing
   if (process.env.TEST_JOB_ID) {
@@ -1430,15 +1432,19 @@ async function main() {
   const PAGE_LOAD_BLOCKED = ['adyen', 'cloudflare', 'stripe', 'planetscale', 'clickhouse'];
 
   // GREENHOUSE FILTER: job-boards.greenhouse.io is blocked by Cloudflare on GHA runner IPs.
-  // Move these to manual_queue immediately rather than wasting 60s per job timing out.
-  const greenhouseJobs = jobs.filter(j => (j.apply_link || '').includes('greenhouse'));
-  if (greenhouseJobs.length > 0) {
-    console.log(`  ⚠️  Skipping ${greenhouseJobs.length} Greenhouse jobs (Cloudflare blocks GHA IPs) — moved to manual_queue`);
-    for (const gj of greenhouseJobs) {
-      await supabase.from('jobs').update({ status: 'manual_queue' }).eq('id', gj.id).catch(() => {});
+  // Skip on LOCAL_RUN=true (Mac) — home IP is not on Cloudflare blocklist.
+  if (!isLocal) {
+    const greenhouseJobs = jobs.filter(j => (j.apply_link || '').includes('greenhouse'));
+    if (greenhouseJobs.length > 0) {
+      console.log(`  ⚠️  Skipping ${greenhouseJobs.length} Greenhouse jobs (Cloudflare blocks GHA IPs) — moved to manual_queue`);
+      for (const gj of greenhouseJobs) {
+        await supabase.from('jobs').update({ status: 'manual_queue' }).eq('id', gj.id).catch(() => {});
+      }
     }
+    jobs = jobs.filter(j => !(j.apply_link || '').includes('greenhouse'));
+  } else {
+    console.log(`  🏠 LOCAL_RUN mode — Greenhouse jobs INCLUDED (home IP not blocked)`);
   }
-  jobs = jobs.filter(j => !(j.apply_link || '').includes('greenhouse'));
 
   // Pre-filter: cap per company so one company can't dominate the 25-slot batch
   const prefilterCounts = {};
@@ -1652,9 +1658,9 @@ async function main() {
         }
 
         if (realApplyUrl) {
-          // Guard: if ArbeitNow resolved to greenhouse.io, skip — Cloudflare blocks GHA IPs
-          if (realApplyUrl.includes('greenhouse.io') || realApplyUrl.includes('job-boards.greenhouse')) {
-            console.log(`  ⚠️  ArbeitNow resolved to Greenhouse (blocked) — moving to manual_queue`);
+          // Guard: if ArbeitNow resolved to greenhouse.io — only skip on GHA (Cloudflare blocks)
+          if (!isLocal && (realApplyUrl.includes('greenhouse.io') || realApplyUrl.includes('job-boards.greenhouse'))) {
+            console.log(`  ⚠️  ArbeitNow resolved to Greenhouse (blocked on GHA) — moving to manual_queue`);
             await supabase.from('jobs').update({ status: 'manual_queue', apply_link: realApplyUrl }).eq('id', job.id).catch(() => {});
             throw new Error('ArbeitNow resolved to Greenhouse (Cloudflare blocks GHA IPs) — manual_queue');
           }
