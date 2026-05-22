@@ -4,6 +4,27 @@
  * Dynamically fills out forms using Groq API
  */
 process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
+
+// Force unbuffered stdout even when piped (non-TTY).
+// Without this, all console.log output is held in the OS pipe buffer
+// and only appears when the process exits — making real-time monitoring impossible.
+if (process.stdout._handle && process.stdout._handle.setBlocking) {
+  process.stdout._handle.setBlocking(true);
+}
+// Also write progress to a file for easy external tailing
+import { appendFileSync as _appendLog } from 'fs';
+const PROGRESS_LOG = '/tmp/apply-progress.txt';
+const _origLog = console.log.bind(console);
+console.log = (...args) => {
+  _origLog(...args);
+  try { _appendLog(PROGRESS_LOG, args.join(' ') + '\n'); } catch {}
+};
+const _origErr = console.error.bind(console);
+console.error = (...args) => {
+  _origErr(...args);
+  try { _appendLog(PROGRESS_LOG, '[ERR] ' + args.join(' ') + '\n'); } catch {}
+};
+
 import { chromium } from 'playwright-extra';
 import stealth from 'puppeteer-extra-plugin-stealth';
 chromium.use(stealth());
