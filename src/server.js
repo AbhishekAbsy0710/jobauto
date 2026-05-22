@@ -252,8 +252,9 @@ app.post('/api/send-report', async (req, res) => {
 app.get('/api/health', async (req, res) => {
   try {
     const { checkOllamaHealth } = await import('./services/evaluator.js');
-    res.json({ status: 'ok', version: 'v2.1.0', ollama: await checkOllamaHealth(), uptime: process.uptime() });
-  } catch (e) { res.json({ status: 'ok', version: 'v2.1.0', uptime: process.uptime() }); }
+    const health = await checkOllamaHealth();
+    res.json({ status: 'ok', version: 'v2.1.0', llm: health?.provider || 'none', llmHealth: health, uptime: process.uptime() });
+  } catch (e) { res.json({ status: 'ok', version: 'v2.1.0', llm: 'none', uptime: process.uptime() }); }
 });
 
 app.get('*', (req, res) => { res.sendFile(join(__dirname, 'public', 'index.html')); });

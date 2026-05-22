@@ -48,3 +48,13 @@ security_code.txt
 # Gmail OAuth
 gmail_credentials.json
 gmail_token.json
+
+# Screenshots from browser bot
+*.png
+*.jpeg
+*.jpg
+proof_*
+captcha_*
+debug_*
+WAITING_FOR_SECURITY_CODE.txt
+security_code.txt

@@ -5,6 +5,17 @@
 let allJobs = [];
 let debounceTimer = null;
 
+// Supabase connection — used by all data loaders
+const SUPABASE_URL = 'https://swscpdtchfjyzpjhwqqj.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3c2NwZHRjaGZqeXpwamh3cXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxMzk2OTEsImV4cCI6MjA2MTcxNTY5MX0.v_V_jUGXfxiMFvt8gSJWn7PXN4TzjJBbQH7pWTbDHZ8';
+
+async function sbFetch(path) {
+  const res = await fetch(SUPABASE_URL + path, {
+    headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
+  });
+  return res.json();
+}
+
 // ============================================
 // INIT
 // ============================================
@@ -20,44 +31,71 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================
 async function checkHealth() {
   try {
-    const res = await fetch('/api/health');
-    const data = await res.json();
+    // Check Supabase connectivity
+    const res = await fetch(SUPABASE_URL + '/rest/v1/jobs?select=id&limit=1', {
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
+    });
     const dot = document.querySelector('.health-dot');
     const text = document.getElementById('health-text');
 
-    if (data.llm === 'groq') {
+    if (res.ok) {
       dot.classList.add('online');
       dot.classList.remove('offline');
-      text.textContent = 'Groq API Active';
+      text.textContent = 'Supabase Connected';
     } else {
       dot.classList.add('offline');
       dot.classList.remove('online');
-      text.textContent = 'Groq API Missing';
+      text.textContent = 'Supabase Error';
     }
   } catch {
     const dot = document.querySelector('.health-dot');
     dot.classList.add('offline');
-    document.getElementById('health-text').textContent = 'Server Error';
+    document.getElementById('health-text').textContent = 'Connection Error';
   }
 }
 
 // ============================================
-// STATS
+// STATS — reads from Supabase directly
 // ============================================
 async function loadStats() {
   try {
-    const res = await fetch('/api/stats');
-    const s = await res.json();
+    // Total jobs
+    const jobsRes = await fetch(SUPABASE_URL + '/rest/v1/jobs?select=id,status', {
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
+    });
+    const allJobsData = await jobsRes.json();
+    const total = allJobsData.length;
+    const applied = allJobsData.filter(j => j.status === 'applied').length;
+    const interviews = allJobsData.filter(j => j.status === 'interview').length;
 
-    document.getElementById('sv-total').textContent = s.total_jobs || 0;
-    document.getElementById('sv-apply').textContent = s.auto_apply || 0;
-    document.getElementById('sv-review').textContent = s.manual_apply || 0;
-    document.getElementById('sv-skip').textContent = s.ignored || 0;
-    document.getElementById('sv-applied').textContent = s.applied || 0;
-    document.getElementById('sv-interviews').textContent = s.interviews || 0;
-    document.getElementById('sv-avg').textContent = s.avg_match || 0;
+    // Evaluations for grades, archetypes, scores
+    const evalsRes = await fetch(SUPABASE_URL + '/rest/v1/evaluations?select=letter_grade,weighted_score,archetype,action', {
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
+    });
+    const evals = await evalsRes.json();
+    const evaluated = evals.length;
+    const autoApply = evals.filter(e => e.action === 'Apply').length;
+    const manualApply = evals.filter(e => e.action === 'Review').length;
+    const ignored = evals.filter(e => e.action === 'Skip').length;
+    const scores = evals.map(e => e.weighted_score).filter(s => s > 0);
+    const avgMatch = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : 0;
 
-    renderGradeBar(s.grades || []);
+    // Grade distribution
+    const gradeCounts = {};
+    evals.forEach(e => {
+      if (e.letter_grade) gradeCounts[e.letter_grade] = (gradeCounts[e.letter_grade] || 0) + 1;
+    });
+    const grades = Object.entries(gradeCounts).map(([letter_grade, count]) => ({ letter_grade, count }));
+
+    document.getElementById('sv-total').textContent = total;
+    document.getElementById('sv-apply').textContent = autoApply;
+    document.getElementById('sv-review').textContent = manualApply;
+    document.getElementById('sv-skip').textContent = ignored;
+    document.getElementById('sv-applied').textContent = applied;
+    document.getElementById('sv-interviews').textContent = interviews;
+    document.getElementById('sv-avg').textContent = avgMatch;
+
+    renderGradeBar(grades);
   } catch (e) {
     console.error('Stats error:', e);
   }
@@ -85,17 +123,39 @@ function filterByGrade(grade) {
 }
 
 // ============================================
-// JOBS LIST
+// JOBS LIST — reads from Supabase directly
 // ============================================
 async function loadJobs() {
   try {
-    const res = await fetch('/api/jobs?limit=300');
-    allJobs = await res.json();
+    const jobs = await sbFetch(
+      `/rest/v1/jobs?select=id,title,company,platform,location,apply_link,status,remote,scraped_at,description,` +
+      `evaluations(id,letter_grade,weighted_score,archetype,matching_skills,missing_skills,resume_improvements,dimension_scores,star_stories,reason,action,priority)` +
+      `&order=scraped_at.desc&limit=300`
+    );
+    // Flatten evaluation data onto job object for rendering compatibility
+    allJobs = jobs.map(j => {
+      const ev = Array.isArray(j.evaluations) ? j.evaluations[0] : j.evaluations;
+      return {
+        ...j,
+        letter_grade: ev?.letter_grade || null,
+        weighted_score: ev?.weighted_score || null,
+        archetype: ev?.archetype || null,
+        matching_skills: ev?.matching_skills || [],
+        missing_skills: ev?.missing_skills || [],
+        resume_improvements: ev?.resume_improvements || [],
+        dimension_scores: ev?.dimension_scores || {},
+        star_stories: ev?.star_stories || [],
+        reason: ev?.reason || '',
+        action: ev?.action || '',
+        priority: ev?.priority || '',
+      };
+    });
     renderJobs(allJobs);
     document.getElementById('loading-state')?.remove();
   } catch (e) {
+    console.error('Jobs load error:', e);
     document.getElementById('job-grid').innerHTML =
-      '<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Connection Error</h3><p>Could not reach the API server.</p></div>';
+      '<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Connection Error</h3><p>Could not reach Supabase.</p></div>';
   }
 }
 
@@ -544,16 +604,6 @@ function switchTab(tab) {
 // ============================================
 // LOAD APPLIED JOBS — reads directly from Supabase
 // ============================================
-const SUPABASE_URL = 'https://swscpdtchfjyzpjhwqqj.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3c2NwZHRjaGZqeXpwamh3cXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYxMzk2OTEsImV4cCI6MjA2MTcxNTY5MX0.v_V_jUGXfxiMFvt8gSJWn7PXN4TzjJBbQH7pWTbDHZ8';
-
-async function sbFetch(path) {
-  const res = await fetch(SUPABASE_URL + path, {
-    headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON }
-  });
-  return res.json();
-}
-
 async function loadApplied() {
   const tbody   = document.getElementById('applied-tbody');
   const empty   = document.getElementById('applied-empty');
