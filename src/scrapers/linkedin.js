@@ -46,11 +46,39 @@ export async function scrapeLinkedIn() {
         const dateStr = (card.match(/datetime="([^"]*)"/)?.[1] || '').trim();
 
         if (title && link) {
+          // Fetch full job description from the individual job page
+          let description = `${title} at ${company} in ${location}`;
+          try {
+            const jobPageUrl = link.split('?')[0]; // strip tracking params
+            const jobRes = await fetch(jobPageUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html',
+              },
+              signal: AbortSignal.timeout(10000)
+            });
+            if (jobRes.ok) {
+              const jobHtml = await jobRes.text();
+              // Extract description from show-more-less-html__markup (LinkedIn public job pages)
+              const descMatch = jobHtml.match(/class="show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+              if (descMatch) {
+                description = descMatch[1]
+                  .replace(/<br\s*\/?>/gi, '\n')
+                  .replace(/<\/?(p|li|ul|ol|h[1-6]|div|span|strong|em|b|i|a)[^>]*>/gi, ' ')
+                  .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+                  .slice(0, 5000);
+              }
+            }
+            await new Promise(r => setTimeout(r, 1500)); // extra delay per job page
+          } catch { /* keep placeholder description */ }
+
           jobs.push({
             title,
             company: company || 'Unknown',
             location: location || search.location,
-            description: `${title} at ${company} in ${location}`,
+            description,
             apply_link: link,
             platform: 'linkedin',
             external_id: `linkedin_${link.match(/view\/(\d+)/)?.[1] || Buffer.from(link).toString('base64').slice(0, 30)}`,

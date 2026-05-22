@@ -49,7 +49,23 @@ export async function scrapeSmartRecruiters(companies = []) {
           const isTech = TECH_TITLE_KEYWORDS.some(kw => title.includes(kw));
           if (!isTech) continue;
 
-          allJobs.push(normalizeJob(job, company_id, name));
+          // If listing doesn't include jobAd, fetch individual job details
+          let jobWithDesc = job;
+          if (!job.jobAd?.sections?.jobDescription?.text) {
+            try {
+              const detailUrl = `${SR_BASE}/${company_id}/postings/${job.id}`;
+              const detailResp = await fetch(detailUrl, {
+                headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
+              });
+              if (detailResp.ok) {
+                const detailData = await detailResp.json();
+                jobWithDesc = { ...job, jobAd: detailData.jobAd || job.jobAd };
+              }
+              await new Promise(r => setTimeout(r, 300));
+            } catch { /* use original job data */ }
+          }
+
+          allJobs.push(normalizeJob(jobWithDesc, company_id, name));
           fetched++;
         }
 
