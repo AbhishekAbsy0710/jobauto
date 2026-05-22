@@ -325,6 +325,32 @@ def fill_base_fields(page, resume_path):
         '#email', 'input[name="email"]', 'input[type="email"]',
         'input[name="_systemfield_email"]', 'input[id*="email"]',
     ], PROFILE["email"])
+
+    # "Confirm your email" field — SmartRecruiters and some ATS forms require this
+    # Must be filled separately as it's skipped by fill_dynamic_fields (contains "email" in name)
+    try:
+        for sel in [
+            'input[name*="confirm"][type="email"]',
+            'input[name*="confirm"][name*="email"]',
+            'input[id*="confirm"][type="email"]',
+            'input[id*="confirm"][id*="email"]',
+            'input[placeholder*="Confirm" i][type="email"]',
+            'input[placeholder*="confirm" i][placeholder*="email" i]',
+        ]:
+            el = page.query_selector(sel)
+            if el and el.is_visible():
+                el.fill(PROFILE["email"])
+                break
+        else:
+            # Fallback: find all email inputs, fill any that are empty (confirm field is usually 2nd)
+            email_inputs = page.query_selector_all('input[type="email"], input[name*="email"], input[id*="email"]')
+            for inp in email_inputs:
+                if inp.is_visible() and not inp.input_value().strip():
+                    inp.fill(PROFILE["email"])
+                    break
+    except Exception:
+        pass
+
     fill_field(page, [
         '#phone', 'input[name="phone"]', 'input[type="tel"]',
         'input[name="_systemfield_phone"]', 'input[id*="phone"]',
