@@ -1876,10 +1876,12 @@ async function main() {
       // ── Greenhouse job-boards.greenhouse.io: click Apply if still on job description page ──
       // (catches cases where we navigated to GH but didn't click Apply via embed path)
       if (page.url().includes('greenhouse.io') && !page.url().includes('application')) {
+        let ghApplyClicked2 = false;
         const ghApplyFallbackSelectors = [
           '#apply_button', '#im_interested_button',
           'a:has-text("Apply for this Job")', 'a:has-text("Apply for this job")',
           'button:has-text("Apply for this Job")', 'button:has-text("I\'m interested")',
+          'a[href*="/application"]',
         ];
         for (const s of ghApplyFallbackSelectors) {
           const b = await page.$(s).catch(() => null);
@@ -1887,7 +1889,18 @@ async function main() {
             console.log(`  🎯 Clicking Greenhouse Apply button (fallback)`);
             await b.click();
             await page.waitForTimeout(2500);
+            ghApplyClicked2 = true;
             break;
+          }
+        }
+        // New Greenhouse design: no button, navigate directly to /application URL
+        if (!ghApplyClicked2) {
+          const ghCurrentUrl = page.url().split('?')[0].replace(/\/$/, '');
+          if (ghCurrentUrl.includes('/jobs/')) {
+            const ghApplicationUrl = ghCurrentUrl + '/application';
+            console.log(`  🔀 GH new design: navigating directly to ${ghApplicationUrl}`);
+            await page.goto(ghApplicationUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForTimeout(2000);
           }
         }
       }
@@ -1943,50 +1956,55 @@ async function main() {
       // The multi-step loop below handles all filling (step 1 onwards)
       // 4. Multi-step form navigation loop (handles Greenhouse, Ashby, Lever, Workday)
       // Each iteration: fill visible fields → try Submit → else try Next → repeat
-      // ── SmartRecruiters GDPR consent step auto-accept ────────────────────────────────────
-      // SR application forms start with a GDPR consent page (vendor-search-handler etc.)
-      // The checkboxes must be CLICKED (not filled with text). After checking them all,
-      // the Continue / action-button becomes enabled and can be clicked.
+      // ── SmartRecruiters: accept privacy/cookie consent BEFORE form loop ────────────────
+      // SR shows a two-layered consent:
+      //  1. SR Privacy page (vendor-search-handler etc.) — click "Accept All" to bypass
+      //  2. OneTrust cookie prefs (ot-group-id-C0002 etc.) — click "Confirm My Choices"
+      // NEVER click "Continue without Accepting" — it leads to cookie prefs page, not the form
       const isSmartRecruitersPage = page.url().includes('smartrecruiters.com');
       if (isSmartRecruitersPage) {
-        // Detect the GDPR consent checkboxes by their known IDs
-        const gdprCheckboxSelectors = [
-          '#vendor-search-handler',
-          '#chkbox-id',
-          '#select-all-hosts-groups-handler',
-          '#select-all-vendor-groups-handler',
-          '#select-all-vendor-leg-handler',
-          // Fallback: any unchecked checkbox in a form on SR pages
-        ];
-        let gdprFound = false;
-        // Wait for GDPR checkboxes to appear after Apply click navigation
         await page.waitForTimeout(1500);
-        for (const sel of gdprCheckboxSelectors) {
-          const cb = await page.$(sel).catch(() => null);
-          if (cb) { // Don't check isVisible — use force:true to click hidden/overlaid elements
-            const isChecked = await cb.isChecked().catch(() => false);
-            if (!isChecked) {
-              await cb.scrollIntoViewIfNeeded().catch(() => {});
-              await cb.click({ force: true }).catch(() => {});
-              await page.waitForTimeout(300);
-            }
-            gdprFound = true;
+        // Step A: Accept All cookies/privacy consent
+        const srAcceptSelectors = [
+          'button#onetrust-accept-btn-handler',
+          'button#accept-recommended-btn-handler',
+          'button:has-text("Accept All")',
+          'button:has-text("Accept all")',
+          'button:has-text("Accept All Cookies")',
+          'button:has-text("Alle akzeptieren")',
+          'button:has-text("Alles akzeptieren")',
+          'button[data-qa="action-button"]:not(:has-text("without"))',
+        ];
+        for (const sel of srAcceptSelectors) {
+          const btn = await page.$(sel).catch(() => null);
+          if (btn && await btn.isVisible().catch(() => false)) {
+            const btnTxt = await btn.textContent().catch(() => '?');
+            if (btnTxt.toLowerCase().includes('without')) continue; // Skip "Continue without Accepting"
+            console.log(`  ✅ SR Accept All: clicking "${btnTxt.trim()}"`);
+            await btn.click();
+            await page.waitForTimeout(2500);
+            break;
           }
         }
-        if (gdprFound) {
-          console.log(`  ✅ SmartRecruiters GDPR consent checkboxes accepted`);
-          // Click Continue / action-button to advance past consent step
-          await page.waitForTimeout(800);
-          const continueBtn = await page.$(
-            'button[data-qa="action-button"], button:has-text("Continue"), button:has-text("Weiter"), '
-            + 'button:has-text("Confirm"), button:has-text("Save and Continue"), '
-            + 'button:has-text("Agree"), button[type="submit"]'
-          ).catch(() => null);
-          if (continueBtn && await continueBtn.isVisible().catch(() => false)) {
-            const btnTxt = await continueBtn.textContent().catch(() => '?');
-            console.log(`  ➡️  SmartRecruiters GDPR Continue: clicking "${btnTxt.trim()}"`);
-            await continueBtn.click();
-            await page.waitForTimeout(3000);
+        // Step B: If on OneTrust cookie prefs page (ot-group-id-C0002 exists), confirm choices
+        const onOTPrefsPage = await page.$('input[name="ot-group-id-C0002"], #ot-group-id-C0002').catch(() => null);
+        if (onOTPrefsPage) {
+          console.log(`  🍪 OneTrust prefs page detected — clicking Confirm My Choices`);
+          const otConfirmSelectors = [
+            'button.save-preference-btn-handler',
+            'button:has-text("Confirm My Choices")',
+            'button:has-text("Save Settings")',
+            'button:has-text("Save and Exit")',
+            'button:has-text("Einstellungen speichern")',
+            '#accept-recommended-btn-handler',
+          ];
+          for (const sel of otConfirmSelectors) {
+            const btn = await page.$(sel).catch(() => null);
+            if (btn && await btn.isVisible().catch(() => false)) {
+              await btn.click();
+              await page.waitForTimeout(2500);
+              break;
+            }
           }
         }
       }
