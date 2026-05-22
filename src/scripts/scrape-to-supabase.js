@@ -109,49 +109,16 @@ action rules: A/B → "auto_queue", C → "manual_queue", D/F → "skip"`;
           ]
         })
       });
-      if (resp.ok) {
-        const data = await resp.json();
-        const text = data.choices?.[0]?.message?.content || '';
-        const match = text.match(/\{[\s\S]*\}/);
-        if (match) {
-          const parsed = JSON.parse(match[0]);
-          parsed._model = 'llama-3.1-8b';
-          parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
-          return parsed;
-        }
-      }
-    } catch { /* fall through to Grok */ }
-  }
-
-  // --- Fallback: Grok (xAI, $25 free credits) ---
-  const grokKey = process.env.GROK_API_KEY;
-  if (grokKey) {
-    try {
-      const resp = await fetch('https://api.x.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${grokKey}` },
-        body: JSON.stringify({
-          model: 'grok-3-mini-fast',
-          temperature: 0.1,
-          max_tokens: 1200,
-          messages: [
-            { role: 'system', content: richPrompt },
-            { role: 'user', content: userMsg }
-          ]
-        })
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        const text = data.choices?.[0]?.message?.content || '';
-        const match = text.match(/\{[\s\S]*\}/);
-        if (match) {
-          const parsed = JSON.parse(match[0]);
-          parsed._model = 'grok-3-mini-fast';
-          parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
-          return parsed;
-        }
-      }
-    } catch { /* no more fallbacks */ }
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const text = data.choices?.[0]?.message?.content || '';
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) return null;
+      const parsed = JSON.parse(match[0]);
+      parsed._model = 'llama-3.1-8b';
+      parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
+      return parsed;
+    } catch { return null; }
   }
 
   return null;
