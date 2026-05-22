@@ -326,30 +326,67 @@ def fill_base_fields(page, resume_path):
         'input[name="_systemfield_email"]', 'input[id*="email"]',
     ], PROFILE["email"])
 
-    # "Confirm your email" field — SmartRecruiters and some ATS forms require this
-    # Must be filled separately as it's skipped by fill_dynamic_fields (contains "email" in name)
+    # "Confirm your email" field — SmartRecruiters uses React-generated names/ids
+    # that DON'T contain "confirm" or "email", so we must match by LABEL TEXT
     try:
-        for sel in [
-            'input[name*="confirm"][type="email"]',
-            'input[name*="confirm"][name*="email"]',
-            'input[id*="confirm"][type="email"]',
-            'input[id*="confirm"][id*="email"]',
-            'input[placeholder*="Confirm" i][type="email"]',
-            'input[placeholder*="confirm" i][placeholder*="email" i]',
-        ]:
-            el = page.query_selector(sel)
-            if el and el.is_visible():
-                el.fill(PROFILE["email"])
-                break
-        else:
-            # Fallback: find all email inputs, fill any that are empty (confirm field is usually 2nd)
-            email_inputs = page.query_selector_all('input[type="email"], input[name*="email"], input[id*="email"]')
-            for inp in email_inputs:
-                if inp.is_visible() and not inp.input_value().strip():
-                    inp.fill(PROFILE["email"])
-                    break
-    except Exception:
-        pass
+        confirm_filled = page.evaluate("""(email) => {
+            // Strategy 1: Find label containing "confirm" + "email", then find its input
+            const labels = document.querySelectorAll('label');
+            for (const label of labels) {
+                const txt = (label.innerText || '').toLowerCase();
+                if (txt.includes('confirm') && txt.includes('email')) {
+                    // Try label[for] -> input
+                    const forId = label.getAttribute('for');
+                    let inp = forId ? document.getElementById(forId) : null;
+                    // Try input inside label
+                    if (!inp) inp = label.querySelector('input');
+                    // Try next sibling input
+                    if (!inp) {
+                        const parent = label.closest('div, fieldset, section');
+                        if (parent) inp = parent.querySelector('input:not([type="hidden"])');
+                    }
+                    if (inp && !inp.value) {
+                        const nativeSet = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'value').set;
+                        nativeSet.call(inp, email);
+                        inp.dispatchEvent(new Event('input', {bubbles: true}));
+                        inp.dispatchEvent(new Event('change', {bubbles: true}));
+                        return true;
+                    }
+                }
+            }
+            
+            // Strategy 2: Find any empty input with type="email" or near "email" text
+            // (the confirm field is usually the 2nd email-like input on the page)
+            const allInputs = document.querySelectorAll('input');
+            let emailInputCount = 0;
+            for (const inp of allInputs) {
+                if (inp.offsetParent === null || inp.type === 'hidden') continue;
+                const parent = inp.closest('div, fieldset');
+                const parentText = parent ? parent.innerText.toLowerCase() : '';
+                const isEmailRelated = inp.type === 'email' || 
+                    (inp.name || '').toLowerCase().includes('email') ||
+                    (inp.id || '').toLowerCase().includes('email') ||
+                    parentText.includes('email');
+                if (isEmailRelated) {
+                    emailInputCount++;
+                    // The 2nd email-related input is the confirm field
+                    if (emailInputCount >= 2 && !inp.value) {
+                        const nativeSet = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'value').set;
+                        nativeSet.call(inp, email);
+                        inp.dispatchEvent(new Event('input', {bubbles: true}));
+                        inp.dispatchEvent(new Event('change', {bubbles: true}));
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }""", PROFILE["email"])
+        if confirm_filled:
+            log("    ↳ ✉️ Filled 'Confirm your email' field")
+    except Exception as e:
+        log(f"    ↳ ⚠️ Confirm email fill error: {e}")
 
     fill_field(page, [
         '#phone', 'input[name="phone"]', 'input[type="tel"]',
@@ -1001,7 +1038,7 @@ def main():
 
     # Determine chromium path
     chromium_path = None
-    is_headed = os.environ.get("HEADED", "").lower() == "true"
+    is_headed = os.environ.get("HEADED", "").lower() in ("true", "1", "yes")
     if is_headed:
         if Path(CHROMIUM_FULL).exists():
             chromium_path = CHROMIUM_FULL
