@@ -104,6 +104,41 @@ async function callGemini(systemPrompt, userPrompt) {
   }
 }
 
+// ── Grok fallback (xAI, $25 free credits) ────────────────────────────────────
+async function callGrok(systemPrompt, userPrompt) {
+  if (!process.env.GROK_API_KEY) return '{}';
+  try {
+    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.GROK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'grok-3-mini-fast',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.1,
+        max_tokens: 1500,
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.log(`  ⚠️ Grok API Error: ${res.status} - ${errText.substring(0, 150)}`);
+      return '{}';
+    }
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content || '{}';
+    console.log(`  ✅ Grok 3 Mini responded (${text.length} chars)`);
+    return text;
+  } catch (e) {
+    console.log(`  ⚠️ Grok call failed: ${e.message}`);
+    return '{}';
+  }
+}
+
 async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant') {
   if (!process.env.GROQ_API_KEY) return '{}';
   try {
@@ -161,7 +196,10 @@ async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant'
           return await callGroq(systemPrompt, userPrompt, 'llama3-8b-8192');
         }
         if (model === 'llama3-8b-8192') {
-          console.log(`  🔄 All Groq models hit daily limit → trying Gemini 1.5 Flash...`);
+          console.log(`  🔄 All Groq models hit daily limit → trying Grok (xAI)...`);
+          const grokResult = await callGrok(systemPrompt, userPrompt);
+          if (grokResult && grokResult.trim() !== '{}') return grokResult;
+          console.log(`  🔄 Grok unavailable → trying Gemini...`);
           return await callGemini(systemPrompt, userPrompt);
         }
         console.log(`  ⚠️ All AI models hit daily limit. Applying with base resume...`);

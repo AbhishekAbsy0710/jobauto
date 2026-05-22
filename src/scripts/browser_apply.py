@@ -214,6 +214,34 @@ def call_gemini(system_prompt, user_prompt):
         log(f"  ⚠️ Gemini error: {e}")
         return "{}"
 
+def call_grok(system_prompt, user_prompt):
+    grok_key = os.environ.get("GROK_API_KEY", "")
+    if not grok_key:
+        return "{}"
+    url = "https://api.x.ai/v1/chat/completions"
+    data = {
+        "model": "grok-3-mini-fast",
+        "temperature": 0.1,
+        "max_tokens": 1500,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    try:
+        req = urllib.request.Request(url, data=json.dumps(data).encode(), headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {grok_key}",
+        })
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+        text = result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        log(f"  ✅ Grok responded ({len(text)} chars)")
+        return text
+    except Exception as e:
+        log(f"  ⚠️ Grok error: {e}")
+        return "{}"
+
 def call_ollama(system_prompt, user_prompt, model="llama3.2:3b"):
     url = f"{os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')}/api/chat"
     data = {
@@ -236,10 +264,12 @@ def call_ollama(system_prompt, user_prompt, model="llama3.2:3b"):
         return "{}"
 
 def ai_answer(system_prompt, user_prompt):
-    """Try Groq first, fall back to Gemini, then fall back to Ollama."""
+    """Try Groq → Gemini → Grok → Ollama."""
     raw = call_groq(system_prompt, user_prompt)
     if not raw or raw.strip() in ("{}", ""):
         raw = call_gemini(system_prompt, user_prompt)
+    if not raw or raw.strip() in ("{}", ""):
+        raw = call_grok(system_prompt, user_prompt)
     if not raw or raw.strip() in ("{}", ""):
         raw = call_ollama(system_prompt, user_prompt)
     return raw
