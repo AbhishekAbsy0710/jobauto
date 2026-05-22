@@ -80,7 +80,7 @@ async function callGemini(systemPrompt, userPrompt) {
   }
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -97,7 +97,7 @@ async function callGemini(systemPrompt, userPrompt) {
     }
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    console.log(`  ✅ Gemini 1.5 Flash responded (${text.length} chars)`);
+    console.log(`  ✅ Gemini 2.0 Flash responded (${text.length} chars)`);
     return text;
   } catch (e) {
     console.log(`  ⚠️ Gemini call failed: ${e.message}`);
@@ -1837,6 +1837,46 @@ async function main() {
           }
         } else {
           throw new Error('Company marketing page detected (no apply form) — marking for manual apply');
+        }
+      }
+
+      // ── SmartRecruiters: dismiss cookie consent BEFORE looking for Apply button ──
+      // SR shows a cookie manager (OneTrust) with vendor-search-handler, select-all-* etc.
+      // These look like form fields and fool hasFormFields → must dismiss before main flow.
+      if (page.url().includes('jobs.smartrecruiters.com') || page.url().includes('smartrecruiters.com')) {
+        console.log(`  🍪 Handling SmartRecruiters cookie consent...`);
+        // Try clicking Reject All / Accept All / Save Preferences in cookie modal
+        const cookieBtns = [
+          'button#onetrust-reject-all-handler',
+          'button#onetrust-accept-btn-handler',
+          'button.save-preference-btn-handler',
+          'button:has-text("Reject All")',
+          'button:has-text("Accept All")',
+          'button:has-text("Alle ablehnen")',
+          'button:has-text("Alle akzeptieren")',
+          '[id*="onetrust"] button',
+        ];
+        for (const sel of cookieBtns) {
+          const btn = await page.$(sel).catch(() => null);
+          if (btn && await btn.isVisible().catch(() => false)) {
+            await btn.click().catch(() => {});
+            await page.waitForTimeout(1500);
+            console.log(`  ✅ SmartRecruiters cookie consent dismissed`);
+            break;
+          }
+        }
+
+        // Now look for the actual Apply button on the job page
+        const srApplyBtn = await page.$(
+          '[data-qa="btn-apply"], button[data-qa*="apply"], a[data-qa*="apply"], '
+          + 'button:has-text("Apply"), a:has-text("Apply"), '
+          + 'button:has-text("Jetzt bewerben"), a:has-text("Jetzt bewerben")'
+        ).catch(() => null);
+        if (srApplyBtn && await srApplyBtn.isVisible().catch(() => false)) {
+          console.log(`  🎯 Clicking SmartRecruiters Apply button...`);
+          await srApplyBtn.click();
+          await page.waitForTimeout(3000);
+          console.log(`  ✅ Navigated to application form`);
         }
       }
 
