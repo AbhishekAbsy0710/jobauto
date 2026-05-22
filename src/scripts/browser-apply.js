@@ -1391,6 +1391,17 @@ async function main() {
   // BLOCK LIST: Companies confirmed to block bots or have non-confirming forms
   const PAGE_LOAD_BLOCKED = ['adyen', 'cloudflare', 'stripe', 'planetscale', 'clickhouse'];
 
+  // GREENHOUSE FILTER: job-boards.greenhouse.io is blocked by Cloudflare on GHA runner IPs.
+  // Move these to manual_queue immediately rather than wasting 60s per job timing out.
+  const greenhouseJobs = jobs.filter(j => (j.apply_link || '').includes('greenhouse'));
+  if (greenhouseJobs.length > 0) {
+    console.log(`  ⚠️  Skipping ${greenhouseJobs.length} Greenhouse jobs (Cloudflare blocks GHA IPs) — moved to manual_queue`);
+    for (const gj of greenhouseJobs) {
+      await supabase.from('jobs').update({ status: 'manual_queue' }).eq('id', gj.id).catch(() => {});
+    }
+  }
+  jobs = jobs.filter(j => !(j.apply_link || '').includes('greenhouse'));
+
   // Pre-filter: cap per company so one company can't dominate the 25-slot batch
   const prefilterCounts = {};
   jobs = jobs.filter(j => {
