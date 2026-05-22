@@ -1239,9 +1239,15 @@ Return ONLY valid JSON with these keys:
   let tailoredJson = JSON.parse(baseJsonStr);
   let changesMadeArr = [];
 
+  // Use Gemini for resume tailoring — 1M TPM vs Groq's 6000 TPM
+  // This eliminates the 65s inter-job cooldowns completely
+  const tailorCall = process.env.GEMINI_API_KEY
+    ? (sys, usr) => callGemini(sys, usr)
+    : (sys, usr) => callGroq(sys, usr);
+
   try {
-    console.log(`  🔄 Generating append-only tailored content...`);
-    const res = await callGroq(sysPrompt, userPrompt);
+    console.log(`  🔄 Generating append-only tailored content (Gemini)...`);
+    const res = await tailorCall(sysPrompt, userPrompt);
     const match = res.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON found in response');
 
@@ -1303,12 +1309,17 @@ Return ONLY valid JSON with these keys:
     if (changesMadeArr.length === 0) throw new Error('No meaningful changes made');
 
     // 5. ATS score
-    console.log(`  📊 Evaluating tailored resume...`);
-    const scoreRes = await callGroq(
-      'You are a strict ATS. Compare resume to JD. Return JSON: {"score": integer 0-100}',
-      `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume:\n${JSON.stringify(tailoredJson)}`,
-      'llama-3.1-8b-instant'
-    );
+    console.log(`  📊 Evaluating tailored resume (Gemini)...`);
+    const scoreRes = process.env.GEMINI_API_KEY
+      ? await callGemini(
+          'You are a strict ATS. Compare resume to JD. Return JSON: {"score": integer 0-100}',
+          `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume:\n${JSON.stringify(tailoredJson)}`
+        )
+      : await callGroq(
+          'You are a strict ATS. Compare resume to JD. Return JSON: {"score": integer 0-100}',
+          `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume:\n${JSON.stringify(tailoredJson)}`,
+          'llama-3.1-8b-instant'
+        );
     let score = 0;
     try {
       const sm = scoreRes.match(/\{[\s\S]*\}/);
@@ -1781,20 +1792,31 @@ async function main() {
         (document.querySelectorAll('nav a, header a, [role="navigation"] a').length > 5)
       ).catch(() => false);
       if (!hasFormFields && hasNavMenu) {
-        throw new Error('Company marketing page detected (no apply form) — marking for manual apply');
-      }
-
-
-      // Detect login walls (Workday, Spotify/Teamtailor, LinkedIn Easy Apply gating)
-      if (preflightUrl.includes('myworkdayjobs.com') || preflightUrl.includes('workday.com/en-us/signin')) {
-        throw new Error('Workday login wall — requires manual apply');
-      }
-      if (preflightUrl.includes('teamtailor.com') && (pageLower.includes('sign in') || pageLower.includes('log in') || pageLower.includes('create account'))) {
-        throw new Error('Teamtailor login wall — requires manual apply');
-      }
-
-      if (pageLower.includes('page not found') || pageLower.includes(' 404 ') || pageLower.startsWith('404') || pageLower.includes('the job you requested was not found') || pageLower.includes('this position has been filled') || pageLower.includes('this job is no longer available') || pageLower.includes('no longer accepting applications') || pageLower.includes('position is no longer available')) {
-        throw new Error('Dead page: job listing removed or expired');
+        // SmartRecruiters job pages have nav but need Apply button clicked first
+        const onSmartRecruiters = page.url().includes('jobs.smartrecruiters.com') &&
+          !page.url().includes('/application');
+        if (onSmartRecruiters) {
+          console.log(`  🎯 SmartRecruiters job page — clicking Apply button...`);
+          const applyBtn = await page.$(
+            '[data-qa="btn-apply"], a[data-qa="btn-apply"], button:has-text("Apply"), a:has-text("Apply Now"), .job-ad__apply-btn, [class*="apply"][class*="btn"], [class*="btn"][class*="apply"]'
+          ).catch(() => null);
+          if (applyBtn) {
+            await applyBtn.click();
+            await page.waitForTimeout(3000);
+            // Re-check for form fields after clicking Apply
+            const newHasForm = await page.evaluate(() =>
+              !!(document.querySelector('input[type="email"], input[name*="email" i], input[name*="first" i], input[name*="name" i], input[type="file"], .application-form, form'))
+            ).catch(() => false);
+            if (!newHasForm) {
+              throw new Error('SmartRecruiters: Apply button clicked but no form appeared');
+            }
+            console.log(`  ✅ SmartRecruiters form opened`);
+          } else {
+            throw new Error('SmartRecruiters: Apply button not found — marking for manual apply');
+          }
+        } else {
+          throw new Error('Company marketing page detected (no apply form) — marking for manual apply');
+        }
       }
 
       // Dismiss cookie banners before interacting with the form
@@ -1817,6 +1839,13 @@ async function main() {
         // Generic
         'button[type="submit"]',
         'input[type="submit"]',
+        // SmartRecruiters
+        'button[data-qa="btn-apply"]',
+        'button[data-qa="action-button"]',
+        'button[class*="wds-button"][class*="primary"]',
+        'button:has-text("Submit Application")',
+        'button:has-text("Submit application")',
+        'button:has-text("Send application")',
         // Ashby
         'button:has-text("Submit Application")',
         'button:has-text("Submit application")',
@@ -1857,9 +1886,16 @@ async function main() {
         'button:has-text("Next Step")',
         'button:has-text("Next Page")',
         'button:has-text("Review")',
+        // SmartRecruiters specific
+        'button[data-qa="action-button"]',
+        'button[class*="wds-button"]',
+        'button:has-text("Start Application")',
+        'button:has-text("Start application")',
+        'button:has-text("I understand")',
+        '[data-qa="btn-continue"]',
+        // Workday / generic
         'button[data-testid="next-button"]',
         'button[data-testid="continue"]',
-        // Workday
         'button[data-automation-id="bottom-navigation-next-button"]',
         'a:has-text("Next")',
         'a:has-text("Continue")',
@@ -2306,10 +2342,10 @@ async function main() {
 
     await page.close().catch(() => {});
 
-    // Inter-job cooldown: let Groq TPM window reset (1 min = 6k tokens refill)
+    // No cooldown needed — resume tailoring uses Gemini (1M TPM) not Groq
+    // Small jitter between jobs to avoid browser resource spikes
     if (job !== jobs[jobs.length - 1]) {
-      console.log('  ⏱️  Cooling down 65s before next job (Groq TPM reset)...');
-      await new Promise(r => setTimeout(r, 65000));
+      await new Promise(r => setTimeout(r, 2000 + Math.random() * 1000));
     }
   }
 
