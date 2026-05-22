@@ -1260,15 +1260,20 @@ Return ONLY valid JSON with these keys:
   let tailoredJson = JSON.parse(baseJsonStr);
   let changesMadeArr = [];
 
-  // Use Gemini for resume tailoring — 1M TPM vs Groq's 6000 TPM
-  // This eliminates the 65s inter-job cooldowns completely
-  const tailorCall = process.env.GEMINI_API_KEY
+  // Resume tailoring: try Groq first (free, avoids Gemini 429 quota), fallback to Gemini
+  const tailorCall = (sys, usr) => callGroq(sys, usr);
+  const tailorCallFallback = process.env.GEMINI_API_KEY
     ? (sys, usr) => callGemini(sys, usr)
-    : (sys, usr) => callGroq(sys, usr);
+    : null;
 
   try {
-    console.log(`  🔄 Generating append-only tailored content (Gemini)...`);
-    const res = await tailorCall(sysPrompt, userPrompt);
+    console.log(`  🔄 Generating append-only tailored content (Groq)...`);
+    let res = await tailorCall(sysPrompt, userPrompt);
+    // If Groq fails (returns '{}'), try Gemini fallback
+    if ((!res || res.trim() === '{}') && tailorCallFallback) {
+      console.log(`  🔄 Groq returned empty — retrying with Gemini...`);
+      res = await tailorCallFallback(sysPrompt, userPrompt);
+    }
     const match = res.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON found in response');
 
@@ -1776,6 +1781,34 @@ async function main() {
             try { await supabase.from('jobs').update({ apply_link: directUrl }).eq('id', job.id); } catch(e) {}
             await page.goto(directUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
             await page.waitForTimeout(2000 + Math.random() * 1000);
+
+            // ✔️ Greenhouse job description page — click "Apply for this Job" / "I'm interested"
+            // to navigate to the actual application form before hasFormFields check
+            const ghApplySelectors = [
+              '#apply_button',
+              '#im_interested_button',
+              'a:has-text("Apply for this Job")',
+              'a:has-text("Apply for this job")',
+              'button:has-text("Apply for this Job")',
+              'button:has-text("I\'m interested")',
+              'a.btn-gh-apply',
+              '.application-button a',
+            ];
+            let ghApplyClicked = false;
+            for (const ghSel of ghApplySelectors) {
+              const ghBtn = await page.$(ghSel).catch(() => null);
+              if (ghBtn && await ghBtn.isVisible().catch(() => false)) {
+                const ghBtnText = await ghBtn.textContent().catch(() => ghSel);
+                console.log(`  🎯 Clicking Greenhouse: "${ghBtnText.trim()}"`);
+                await ghBtn.click();
+                await page.waitForTimeout(2500);
+                ghApplyClicked = true;
+                break;
+              }
+            }
+            if (!ghApplyClicked) {
+              console.log(`  ⚠️  Greenhouse Apply button not found — will attempt form detection anyway`);
+            }
           }
         } else {
           console.log(`  🔀 ATS embedded in iframe — using fresh token from live page: ${iframeUrl.substring(0, 80)}...`);
@@ -1840,7 +1873,25 @@ async function main() {
         }
       }
 
-      // ── SmartRecruiters: dismiss cookie consent BEFORE looking for Apply button ──
+      // ── Greenhouse job-boards.greenhouse.io: click Apply if still on job description page ──
+      // (catches cases where we navigated to GH but didn't click Apply via embed path)
+      if (page.url().includes('greenhouse.io') && !page.url().includes('application')) {
+        const ghApplyFallbackSelectors = [
+          '#apply_button', '#im_interested_button',
+          'a:has-text("Apply for this Job")', 'a:has-text("Apply for this job")',
+          'button:has-text("Apply for this Job")', 'button:has-text("I\'m interested")',
+        ];
+        for (const s of ghApplyFallbackSelectors) {
+          const b = await page.$(s).catch(() => null);
+          if (b && await b.isVisible().catch(() => false)) {
+            console.log(`  🎯 Clicking Greenhouse Apply button (fallback)`);
+            await b.click();
+            await page.waitForTimeout(2500);
+            break;
+          }
+        }
+      }
+
       // SR shows a cookie manager (OneTrust) with vendor-search-handler, select-all-* etc.
       // These look like form fields and fool hasFormFields → must dismiss before main flow.
       if (page.url().includes('jobs.smartrecruiters.com') || page.url().includes('smartrecruiters.com')) {
@@ -1908,12 +1959,15 @@ async function main() {
           // Fallback: any unchecked checkbox in a form on SR pages
         ];
         let gdprFound = false;
+        // Wait for GDPR checkboxes to appear after Apply click navigation
+        await page.waitForTimeout(1500);
         for (const sel of gdprCheckboxSelectors) {
           const cb = await page.$(sel).catch(() => null);
-          if (cb && await cb.isVisible().catch(() => false)) {
+          if (cb) { // Don't check isVisible — use force:true to click hidden/overlaid elements
             const isChecked = await cb.isChecked().catch(() => false);
             if (!isChecked) {
-              await cb.click().catch(() => {});
+              await cb.scrollIntoViewIfNeeded().catch(() => {});
+              await cb.click({ force: true }).catch(() => {});
               await page.waitForTimeout(300);
             }
             gdprFound = true;
