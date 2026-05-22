@@ -1608,6 +1608,23 @@ async function main() {
         }
 
         if (realApplyUrl) {
+          // Guard: if ArbeitNow resolved to greenhouse.io, skip — Cloudflare blocks GHA IPs
+          if (realApplyUrl.includes('greenhouse.io') || realApplyUrl.includes('job-boards.greenhouse')) {
+            console.log(`  ⚠️  ArbeitNow resolved to Greenhouse (blocked) — moving to manual_queue`);
+            await supabase.from('jobs').update({ status: 'manual_queue', apply_link: realApplyUrl }).eq('id', job.id).catch(() => {});
+            throw new Error('ArbeitNow resolved to Greenhouse (Cloudflare blocks GHA IPs) — manual_queue');
+          }
+          // Guard: if resolved to Lever or Ashby, move to manual_queue (hCaptcha on submit)
+          if (realApplyUrl.includes('lever.co') || realApplyUrl.includes('jobs.lever.co')) {
+            console.log(`  ⚠️  ArbeitNow resolved to Lever (hCaptcha) — moving to manual_queue`);
+            await supabase.from('jobs').update({ status: 'manual_queue', apply_link: realApplyUrl }).eq('id', job.id).catch(() => {});
+            throw new Error('ArbeitNow resolved to Lever (hCaptcha blocks submission) — manual_queue');
+          }
+          if (realApplyUrl.includes('ashbyhq.com')) {
+            console.log(`  ⚠️  ArbeitNow resolved to Ashby (hCaptcha) — moving to manual_queue`);
+            await supabase.from('jobs').update({ status: 'manual_queue', apply_link: realApplyUrl }).eq('id', job.id).catch(() => {});
+            throw new Error('ArbeitNow resolved to Ashby (hCaptcha blocks submission) — manual_queue');
+          }
           console.log(`  ✅ Found real ATS: ${realApplyUrl.substring(0, 80)}`);
           // Update stored apply_link so we skip this lookup next time
           try { await supabase.from('jobs').update({ apply_link: realApplyUrl, platform: new URL(realApplyUrl).hostname.replace('www.','').split('.')[0] }).eq('id', job.id); } catch(e) {}

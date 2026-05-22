@@ -13,6 +13,7 @@ import { scrapeLinkedIn } from '../scrapers/linkedin.js';
 import { scrapeIndeed } from '../scrapers/indeed.js';
 import { scrapeStepStone } from '../scrapers/stepstone.js';
 import { scrapeLuxembourg } from '../scrapers/luxembourg.js';
+import { scrapeSmartRecruiters } from '../scrapers/smartrecruiters.js';
 import { loadConfig, loadPortals } from '../config.js';
 
 const supabase = createClient(
@@ -168,20 +169,22 @@ Preferred: Remote-first, EU-based companies, startup/scale-up
 Deal breakers: ${dealBreakers.join(', ')}
   `.trim();
 
+  const srCompanies = portals.smartrecruiters || [];
+
   console.log('\n🚀 JobAuto — Scrape to Supabase');
-  console.log(`   Sources: ArbeitNow, RemoteOK, Portals (Greenhouse/Lever/Ashby), LinkedIn, Indeed, StepStone, Luxembourg`);
+  console.log(`   Sources: ArbeitNow, RemoteOK, SmartRecruiters (${srCompanies.length} companies), Portals (Greenhouse/Lever/Ashby), LinkedIn, Indeed, StepStone, Luxembourg`);
   console.log(`   Keywords: ${keywords.slice(0, 4).join(', ')}...`);
   console.log(`   Locations: ${locations.slice(0, 4).join(', ')}...`);
-  console.log(`   Luxembourg: Amazon Jobs + Jobs.lu + Moovijob + Skyscanner (Greenhouse)`);
   console.log('');
 
   const results = { total: 0, new: 0, skipped: 0, errors: 0 };
 
   // ── Batch 1: Fast APIs ────────────────────────────────────────────────────
-  const [arbeitnowRes, remoteOkRes, portalsRes] = await Promise.allSettled([
+  const [arbeitnowRes, remoteOkRes, portalsRes, smartrecruitersRes] = await Promise.allSettled([
     scrapeArbeitnow(keywords, locations),
     scrapeRemoteOK(keywords),
     scanPortals(portalKeywords),
+    scrapeSmartRecruiters(srCompanies),
   ]);
 
   // ── Batch 2: Web scrapers (with error tolerance) ──────────────────────────
@@ -196,6 +199,7 @@ Deal breakers: ${dealBreakers.join(', ')}
     ...(arbeitnowRes.status === 'fulfilled' ? arbeitnowRes.value : []),
     ...(remoteOkRes.status === 'fulfilled' ? remoteOkRes.value : []),
     ...(portalsRes.status === 'fulfilled' ? portalsRes.value : []),
+    ...(smartrecruitersRes.status === 'fulfilled' ? smartrecruitersRes.value : []),
     ...(linkedinRes.status === 'fulfilled' ? linkedinRes.value : []),
     ...(indeedRes.status === 'fulfilled' ? indeedRes.value : []),
     ...(stepstoneRes.status === 'fulfilled' ? stepstoneRes.value : []),

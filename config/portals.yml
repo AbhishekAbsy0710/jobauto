@@ -165,6 +165,44 @@ ashby:
     name: Clerk
   - company_id: braintrust
     name: Braintrust
+# SmartRecruiters boards — NO Cloudflare, fully works from GHA IPs ✅
+# API: https://api.smartrecruiters.com/v1/companies/{company_id}/postings
+# Apply: https://jobs.smartrecruiters.com/{company_id}/{jobId}
+smartrecruiters:
+  # ── Berlin / Germany ──────────────────────────
+  - company_id: deliveryhero
+    name: Delivery Hero (Berlin)
+  - company_id: hellofresh
+    name: HelloFresh (Berlin)
+  - company_id: zalando
+    name: Zalando (Berlin)
+  - company_id: n26
+    name: N26 (Berlin)
+  - company_id: personio
+    name: Personio (Munich)
+  - company_id: celonis
+    name: Celonis (Munich)
+  - company_id: contentful
+    name: Contentful (Berlin)
+  - company_id: teamviewer
+    name: TeamViewer (Germany)
+  - company_id: sap
+    name: SAP (Walldorf)
+
+  # ── Nordic / Benelux ─────────────────────────
+  - company_id: klarna
+    name: Klarna (Stockholm)
+
+  # ── UK / International ───────────────────────
+  - company_id: wise
+    name: Wise (London/Remote)
+  - company_id: moonpig
+    name: Moonpig (Remote)
+
+  # ── Luxembourg / DACH ────────────────────────
+  - company_id: pwc
+    name: PwC Luxembourg
+
 
 # ── Deal-breakers (auto-skipped before evaluation) ─────────────────────────
 deal_breakers:
