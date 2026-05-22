@@ -80,7 +80,7 @@ async function callGemini(systemPrompt, userPrompt) {
   }
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1892,6 +1892,52 @@ async function main() {
       // The multi-step loop below handles all filling (step 1 onwards)
       // 4. Multi-step form navigation loop (handles Greenhouse, Ashby, Lever, Workday)
       // Each iteration: fill visible fields → try Submit → else try Next → repeat
+      // ── SmartRecruiters GDPR consent step auto-accept ────────────────────────────────────
+      // SR application forms start with a GDPR consent page (vendor-search-handler etc.)
+      // The checkboxes must be CLICKED (not filled with text). After checking them all,
+      // the Continue / action-button becomes enabled and can be clicked.
+      const isSmartRecruitersPage = page.url().includes('smartrecruiters.com');
+      if (isSmartRecruitersPage) {
+        // Detect the GDPR consent checkboxes by their known IDs
+        const gdprCheckboxSelectors = [
+          '#vendor-search-handler',
+          '#chkbox-id',
+          '#select-all-hosts-groups-handler',
+          '#select-all-vendor-groups-handler',
+          '#select-all-vendor-leg-handler',
+          // Fallback: any unchecked checkbox in a form on SR pages
+        ];
+        let gdprFound = false;
+        for (const sel of gdprCheckboxSelectors) {
+          const cb = await page.$(sel).catch(() => null);
+          if (cb && await cb.isVisible().catch(() => false)) {
+            const isChecked = await cb.isChecked().catch(() => false);
+            if (!isChecked) {
+              await cb.click().catch(() => {});
+              await page.waitForTimeout(300);
+            }
+            gdprFound = true;
+          }
+        }
+        if (gdprFound) {
+          console.log(`  ✅ SmartRecruiters GDPR consent checkboxes accepted`);
+          // Click Continue / action-button to advance past consent step
+          await page.waitForTimeout(800);
+          const continueBtn = await page.$(
+            'button[data-qa="action-button"], button:has-text("Continue"), button:has-text("Weiter"), '
+            + 'button:has-text("Confirm"), button:has-text("Save and Continue"), '
+            + 'button:has-text("Agree"), button[type="submit"]'
+          ).catch(() => null);
+          if (continueBtn && await continueBtn.isVisible().catch(() => false)) {
+            const btnTxt = await continueBtn.textContent().catch(() => '?');
+            console.log(`  ➡️  SmartRecruiters GDPR Continue: clicking "${btnTxt.trim()}"`);
+            await continueBtn.click();
+            await page.waitForTimeout(3000);
+          }
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────────────────
+
       const MAX_STEPS = 10;
       let submitted = false;
       let stepCount = 0;
