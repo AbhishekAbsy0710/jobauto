@@ -87,7 +87,7 @@ async function upsertJob(job, evaluation) {
   const isGreenhouseLink = applyLinkLower.includes('greenhouse.io') || applyLinkLower.includes('job-boards.greenhouse');
   const status = CAPTCHA_PLATFORMS.includes(platformLower) || PAGE_LOAD_BLOCKED_COMPANIES.some(c => companyLower.includes(c)) || isGreenhouseLink
     ? 'manual_queue'                          // Cloudflare/hCaptcha blocked → manual
-    : (evaluation?.action || 'auto_queue');   // ArbeitNow/RemoteOK/Jobgether → auto
+    : (evaluation?.action || 'new');          // No evaluation (rate-limited) → stay 'new' until evaluated
 
   // Only include columns that exist in the Supabase jobs table schema:
   // id, title, company, location, description, apply_link, platform,

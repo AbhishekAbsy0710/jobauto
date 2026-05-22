@@ -94,20 +94,30 @@ def http_post(url, data, headers=None):
         raise RuntimeError(f"HTTP POST error: {e}")
 
 def upload_screenshot(filepath, filename):
-    import requests
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY: return None
-    url = f"{SUPABASE_URL}/storage/v1/object/screenshots/{filename}"
-    headers = {"Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Content-Type": "image/jpeg"}
+    """Upload screenshot to Supabase Storage. Returns public URL or None."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
     try:
         with open(filepath, 'rb') as f:
-            res = requests.post(url, headers=headers, data=f)
-        if res.status_code not in (200, 201):
-            with open(filepath, 'rb') as f:
-                res = requests.put(url, headers=headers, data=f)
-        return f"{SUPABASE_URL}/storage/v1/object/public/screenshots/{filename}"
+            data = f.read()
+
+        url = f"{SUPABASE_URL}/storage/v1/object/screenshots/{filename}"
+        req = urllib.request.Request(url, data=data, method="POST")
+        req.add_header("apikey", SUPABASE_SERVICE_KEY)
+        req.add_header("Authorization", f"Bearer {SUPABASE_SERVICE_KEY}")
+        req.add_header("Content-Type", "image/jpeg")
+        req.add_header("x-upsert", "true")
+
+        resp = urllib.request.urlopen(req, timeout=30)
+        if resp.status in (200, 201):
+            public_url = f"{SUPABASE_URL}/storage/v1/object/public/screenshots/{filename}"
+            return public_url
+        else:
+            log(f"  ⚠️ Screenshot upload status: {resp.status}")
+            return None
     except Exception as e:
         log(f"  ⚠️ Error uploading screenshot: {e}")
-    return None
+        return None
 
 def supabase_query(table, select="*", filters=None, order=None, limit=None):
     """Simple Supabase REST query."""
