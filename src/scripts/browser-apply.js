@@ -1952,23 +1952,24 @@ async function main() {
       // the Continue / action-button becomes enabled and can be clicked.
       const isSmartRecruitersPage = page.url().includes('smartrecruiters.com');
       if (isSmartRecruitersPage) {
-        // ── Step 0: Force-dismiss any OneTrust cookie overlay BEFORE touching SR form ──
-        // OneTrust overlays intercept clicks and "Confirm" text matching
+        // ── Step 0: Accept OneTrust cookies via API (don't remove DOM — GDPR form is inside it) ──
         await page.evaluate(() => {
-          // Remove OneTrust overlay, backdrop, and preference center completely
-          for (const sel of ['#onetrust-consent-sdk', '#onetrust-pc-sdk', '.onetrust-pc-dark-filter', '#onetrust-banner-sdk']) {
-            const el = document.querySelector(sel);
-            if (el) el.remove();
+          // Accept all cookies via OneTrust API if available — this hides the cookie BANNER
+          // but preserves the GDPR consent form that SmartRecruiters embeds
+          if (typeof OneTrust !== 'undefined') {
+            try { if (OneTrust.AllowAll) OneTrust.AllowAll(); } catch(e) {}
+            try { if (OneTrust.Close) OneTrust.Close(); } catch(e) {}
           }
-          // Also accept via OneTrust API if available
-          if (typeof OneTrust !== 'undefined' && OneTrust.AllowAll) {
-            try { OneTrust.AllowAll(); } catch(e) {}
-          }
+          // Only remove the cookie BANNER overlay, NOT the full consent SDK
+          const banner = document.getElementById('onetrust-banner-sdk');
+          if (banner) banner.remove();
+          const backdrop = document.querySelector('.onetrust-pc-dark-filter');
+          if (backdrop) backdrop.remove();
           document.body.style.overflow = 'auto';
           document.documentElement.style.overflow = 'auto';
         }).catch(() => {});
         await page.waitForTimeout(1000);
-        console.log(`  🍪 OneTrust overlay force-cleared before GDPR consent`);
+        console.log(`  🍪 OneTrust cookie banner dismissed (GDPR form preserved)`);
 
         // ── Step 1: Check GDPR consent checkboxes ──
         const gdprCheckboxSelectors = [
