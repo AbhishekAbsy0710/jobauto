@@ -1704,78 +1704,10 @@ async function main() {
       }
       // ─────────────────────────────────────────────────────────────────────────────────────
 
-      const MAX_STEPS = 10;
+      // SUBMIT_SELECTORS, NEXT_SELECTORS, FINAL_PAGE_SIGNALS, MAX_STEPS
+      // imported from agents/constants.js — single source of truth
       let submitted = false;
       let stepCount = 0;
-
-      const SUBMIT_SELECTORS = [
-        // Generic
-        'button[type="submit"]',
-        'input[type="submit"]',
-        // SmartRecruiters
-        'button[data-qa="btn-apply"]',
-        'button[data-qa="action-button"]',
-        'button[class*="wds-button"][class*="primary"]',
-        'button:has-text("Submit Application")',
-        'button:has-text("Submit application")',
-        'button:has-text("Send application")',
-        // Ashby
-        'button:has-text("Submit Application")',
-        'button:has-text("Submit application")',
-        'button[data-testid="ashby-btn-primary"]',
-        '.ashby-application-form-submit-button',
-        // Greenhouse
-        '#submit_app', '#submit-app',
-        'button#submit_app',
-        'input#submit_app',
-        // Lever
-        'button.postings-btn.template-btn-submit',
-        'a.postings-btn',
-        // Generic text
-        'button:has-text("Submit")',
-        'button:has-text("Apply")',
-        'button:has-text("Apply Now")',
-        'button:has-text("Send Application")',
-        'button:has-text("Send your application")',
-        'button:has-text("Bewerbung absenden")',
-        'button:has-text("Jetzt bewerben")',
-        // Workday
-        'button[data-automation-id="bottom-navigation-next-button"]',
-        'button[data-automation-id="bottom-navigation-review-btn"]',
-        // Teamtailor (Spotify)
-        'button[data-testid="submit-button"]',
-        'button.button--primary:has-text("Send application")',
-        'button.button--primary:has-text("Apply")',
-        // Misc
-        'button.submit-application',
-        '[data-action="submit"]',
-        'button[aria-label*="submit" i]',
-        'button[aria-label*="apply" i]',
-      ];
-      const NEXT_SELECTORS = [
-        'button:has-text("Next")',
-        'button:has-text("Continue")',
-        'button:has-text("Weiter")',
-        'button:has-text("Next Step")',
-        'button:has-text("Next Page")',
-        'button:has-text("Review")',
-        // SmartRecruiters specific
-        'button[data-qa="action-button"]',
-        'button[class*="wds-button"]',
-        'button:has-text("Start Application")',
-        'button:has-text("Start application")',
-        'button:has-text("I understand")',
-        '[data-qa="btn-continue"]',
-        // Workday / generic
-        'button[data-testid="next-button"]',
-        'button[data-testid="continue"]',
-        'button[data-automation-id="bottom-navigation-next-button"]',
-        'a:has-text("Next")',
-        'a:has-text("Continue")',
-        '.next-btn', '#next-button',
-        'button[aria-label*="next" i]',
-      ];
-      const FINAL_PAGE_SIGNALS = ['review your application', 'review and submit', 'überprüfen', 'zusammenfassung'];
 
       while (!submitted && stepCount < MAX_STEPS) {
         stepCount++;

@@ -53,18 +53,9 @@ export async function reportApplied(job, supabase, opts = {}) {
     }
   }
 
-  // Insert application record
-  await supabase.from('applications').insert({
-    evaluation_id: job.eval_id,
-    method: 'auto_browser',
-    status: 'applied',
-    pdf_path: job.tailoredPublicUrl || null,
-    screenshot_url: proofUrl || null,
-    applied_at: new Date().toISOString()
-  });
+  // NOTE: DB insert (applications + jobs.update) is handled inline in browser-apply.js
+  // during the per-job loop. This function only sends the Discord notification.
 
-  // Update job status
-  await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id);
 
   // Discord notification
   const coldEmailStatus = coldEmail.sent ? '✅ Sent' : '❌ Not sent';
@@ -89,7 +80,7 @@ export async function reportApplied(job, supabase, opts = {}) {
     description: `Successfully applied to **${job.company}**!${job.needsEmailVerification ? '\n\n⚠️ **ATTENTION:** Email verification required — check inbox!' : ''}`,
     color: 0x00d2a0,
     fields,
-    image: proofUrl ? { url: proofUrl } : undefined,
+    image: (proofUrl || job.screenshotUrl) ? { url: proofUrl || job.screenshotUrl } : undefined,
     timestamp: new Date().toISOString(),
     footer: { text: 'JobAuto — Auto-Applied ✅' }
   });
