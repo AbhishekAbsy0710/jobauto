@@ -2181,6 +2181,39 @@ async function main() {
         await fillDynamicFields(page);
         await page.waitForTimeout(800);
 
+        // ── SR/Generic consent checkboxes: check ALL visible unchecked checkboxes ──
+        // SmartRecruiters has its own data consent checkboxes (separate from OneTrust)
+        // that must be checked before the Continue/action-button becomes enabled
+        const uncheckedBoxes = await page.$$('input[type="checkbox"]:not(:checked)').catch(() => []);
+        for (const cb of uncheckedBoxes) {
+          try {
+            if (!await cb.isVisible().catch(() => false)) continue;
+            // Skip OneTrust checkboxes
+            const cbId = await cb.getAttribute('id') || '';
+            const cbName = await cb.getAttribute('name') || '';
+            if (cbId.includes('onetrust') || cbName.includes('onetrust') || cbId.includes('ot-group-id')) continue;
+            // Check consent/privacy/terms checkboxes
+            const parentText = await cb.evaluate(el => {
+              const parent = el.closest('label, div, span');
+              return parent ? (parent.innerText || '').substring(0, 200) : '';
+            }).catch(() => '');
+            const parentLower = parentText.toLowerCase();
+            const isConsent = parentLower.includes('consent') || parentLower.includes('agree') || 
+                             parentLower.includes('privacy') || parentLower.includes('terms') ||
+                             parentLower.includes('data') || parentLower.includes('accept') ||
+                             parentLower.includes('acknowledge') || parentLower.includes('confirm') ||
+                             parentLower.includes('datenschutz') || parentLower.includes('einwillig');
+            if (isConsent || uncheckedBoxes.length <= 3) {
+              // For consent steps with few checkboxes, check them all
+              await cb.scrollIntoViewIfNeeded().catch(() => {});
+              await cb.check({ force: true }).catch(() => cb.click({ force: true }).catch(() => {}));
+              console.log(`    ☑️ Checked consent: "${parentText.substring(0, 60)}"`);
+              await page.waitForTimeout(300);
+            }
+          } catch {}
+        }
+        await page.waitForTimeout(500);
+
         // Check if this is a review/summary step
         const stepBodyText = await page.textContent('body').catch(() => '');
         const isReviewStep = FINAL_PAGE_SIGNALS.some(s => stepBodyText.toLowerCase().includes(s));
@@ -2294,7 +2327,56 @@ async function main() {
         }
 
         if (!clickedSomething) {
-          throw new Error(`No Submit or Next button found on step ${stepCount}`);
+          // Debug: log all visible buttons on the page to understand what's there
+          const visibleButtons = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('button, input[type="submit"], a[role="button"]'))
+              .filter(b => b.offsetParent !== null && b.offsetWidth > 0)
+              .map(b => ({
+                tag: b.tagName,
+                text: (b.innerText || b.value || '').trim().substring(0, 60),
+                qa: b.getAttribute('data-qa') || '',
+                type: b.type || '',
+                disabled: b.disabled,
+                cls: (b.className || '').substring(0, 80)
+              }));
+          }).catch(() => []);
+          console.log(`  🔍 Debug: ${visibleButtons.length} visible buttons found:`);
+          for (const b of visibleButtons.slice(0, 10)) {
+            console.log(`    → [${b.tag}] "${b.text}" qa="${b.qa}" type="${b.type}" disabled=${b.disabled} cls="${b.cls}"`);
+          }
+
+          // Fallback: try clicking disabled action-button after forcing enable
+          const disabledBtn = await page.$('button[data-qa="action-button"][disabled], button[data-qa="action-button"][aria-disabled="true"]').catch(() => null);
+          if (disabledBtn) {
+            console.log(`  ⚡ Found disabled SR action-button — force-enabling and clicking`);
+            await page.evaluate(() => {
+              const btn = document.querySelector('button[data-qa="action-button"]');
+              if (btn) {
+                btn.disabled = false;
+                btn.removeAttribute('disabled');
+                btn.removeAttribute('aria-disabled');
+                btn.click();
+              }
+            });
+            await page.waitForTimeout(2000);
+            clickedSomething = true;
+          }
+          
+          if (!clickedSomething) {
+            // Last resort: try any visible primary/action button
+            const anyPrimary = await page.$('button[class*="primary"]:not([disabled]), button[class*="action"]:not([disabled])').catch(() => null);
+            if (anyPrimary && await anyPrimary.isVisible().catch(() => false)) {
+              const txt = await anyPrimary.textContent().catch(() => 'unknown');
+              console.log(`  🔘 Fallback: clicking primary button "${txt.trim()}"`);
+              await anyPrimary.click({ force: true });
+              clickedSomething = true;
+              await page.waitForTimeout(2000);
+            }
+          }
+
+          if (!clickedSomething) {
+            throw new Error(`No Submit or Next button found on step ${stepCount}`);
+          }
         }
       }
 
