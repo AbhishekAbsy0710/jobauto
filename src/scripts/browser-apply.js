@@ -1921,16 +1921,33 @@ async function main() {
         }
 
         // Now look for the actual Apply button on the job page
+        // Wait for SR SPA to render the Apply button
+        await page.waitForTimeout(2000);
+        
         const srApplyBtn = await page.$(
           '[data-qa="btn-apply"], button[data-qa*="apply"], a[data-qa*="apply"], '
-          + 'button:has-text("Apply"), a:has-text("Apply"), '
+          + 'button:has-text("Apply"), a:has-text("Apply now"), '
+          + 'a:has-text("Apply"), button:has-text("Apply Now"), '
           + 'button:has-text("Jetzt bewerben"), a:has-text("Jetzt bewerben")'
         ).catch(() => null);
         if (srApplyBtn && await srApplyBtn.isVisible().catch(() => false)) {
-          console.log(`  🎯 Clicking SmartRecruiters Apply button...`);
+          const applyBtnText = await srApplyBtn.textContent().catch(() => 'Apply');
+          console.log(`  🎯 Clicking SmartRecruiters Apply button: "${applyBtnText.trim()}"...`);
           await srApplyBtn.click();
           await page.waitForTimeout(3000);
           console.log(`  ✅ Navigated to application form`);
+        } else {
+          // Fallback: Try to navigate directly to SR application form URL
+          // SR apply forms are at: /applying or /application or append /applying to the job URL
+          const currentUrl = page.url();
+          if (currentUrl.includes('jobs.smartrecruiters.com') && !currentUrl.includes('applying')) {
+            const applyFormUrl = currentUrl.replace(/\/?$/, '/applying');
+            console.log(`  🔀 SR Apply button not found — navigating directly to: ${applyFormUrl}`);
+            await page.goto(applyFormUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+            await page.waitForTimeout(3000);
+          } else {
+            console.log(`  ⚠️ SR Apply button not found and not on job page — proceeding anyway`);
+          }
         }
       }
 
