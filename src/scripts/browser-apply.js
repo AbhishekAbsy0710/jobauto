@@ -1952,21 +1952,37 @@ async function main() {
       // the Continue / action-button becomes enabled and can be clicked.
       const isSmartRecruitersPage = page.url().includes('smartrecruiters.com');
       if (isSmartRecruitersPage) {
-        // Detect the GDPR consent checkboxes by their known IDs
+        // ── Step 0: Force-dismiss any OneTrust cookie overlay BEFORE touching SR form ──
+        // OneTrust overlays intercept clicks and "Confirm" text matching
+        await page.evaluate(() => {
+          // Remove OneTrust overlay, backdrop, and preference center completely
+          for (const sel of ['#onetrust-consent-sdk', '#onetrust-pc-sdk', '.onetrust-pc-dark-filter', '#onetrust-banner-sdk']) {
+            const el = document.querySelector(sel);
+            if (el) el.remove();
+          }
+          // Also accept via OneTrust API if available
+          if (typeof OneTrust !== 'undefined' && OneTrust.AllowAll) {
+            try { OneTrust.AllowAll(); } catch(e) {}
+          }
+          document.body.style.overflow = 'auto';
+          document.documentElement.style.overflow = 'auto';
+        }).catch(() => {});
+        await page.waitForTimeout(1000);
+        console.log(`  🍪 OneTrust overlay force-cleared before GDPR consent`);
+
+        // ── Step 1: Check GDPR consent checkboxes ──
         const gdprCheckboxSelectors = [
           '#vendor-search-handler',
           '#chkbox-id',
           '#select-all-hosts-groups-handler',
           '#select-all-vendor-groups-handler',
           '#select-all-vendor-leg-handler',
-          // Fallback: any unchecked checkbox in a form on SR pages
         ];
         let gdprFound = false;
-        // Wait for GDPR checkboxes to appear after Apply click navigation
         await page.waitForTimeout(1500);
         for (const sel of gdprCheckboxSelectors) {
           const cb = await page.$(sel).catch(() => null);
-          if (cb) { // Don't check isVisible — use force:true to click hidden/overlaid elements
+          if (cb) {
             const isChecked = await cb.isChecked().catch(() => false);
             if (!isChecked) {
               await cb.scrollIntoViewIfNeeded().catch(() => {});
@@ -1979,24 +1995,33 @@ async function main() {
         if (gdprFound) {
           console.log(`  ✅ SmartRecruiters GDPR consent checkboxes accepted`);
           await page.waitForTimeout(800);
-          // Find the right button — NEVER click "Continue without Accepting" as it leads
-          // to OneTrust cookie preferences page (dead end). Prefer Accept All / Agree.
-          const allCandidateSelectors = [
-            'button:has-text("Accept All")', 'button:has-text("Accept all")',
-            'button:has-text("Alle akzeptieren")', 'button:has-text("Agree")',
-            'button:has-text("Save and Continue")', 'button:has-text("Confirm")',
-            'button[data-qa="action-button"]',
-            'button:has-text("Continue")', 'button:has-text("Weiter")',
+
+          // ── Step 2: Click the SR-specific action button (NOT generic "Confirm") ──
+          // IMPORTANT: Avoid any selector that could match OneTrust buttons.
+          // Use SR-specific data attributes first, then very specific text matches.
+          const srButtonSelectors = [
+            'button[data-qa="action-button"]',       // SR's own action button
+            'button[data-qa="btn-continue"]',        // SR continue
+            'button[data-qa="btn-apply"]',           // SR apply
+            'button:has-text("Accept All")',          // Accept All cookies
+            'button:has-text("Accept all")',
+            'button:has-text("Alle akzeptieren")',
+            'button:has-text("Save and Continue")',
+            'button:has-text("Continue")',
+            'button:has-text("Weiter")',
             'button[type="submit"]',
           ];
           let clicked = false;
-          for (const sel of allCandidateSelectors) {
+          for (const sel of srButtonSelectors) {
             const btns = await page.$$(sel).catch(() => []);
             for (const btn of btns) {
               if (!await btn.isVisible().catch(() => false)) continue;
-              const txt = (await btn.textContent().catch(() => '')).toLowerCase();
-              if (txt.includes('without') || txt.includes('ohne')) continue; // skip reject buttons
-              console.log(`  ➡️  SR consent: clicking "${txt.trim()}"`);
+              const txt = (await btn.textContent().catch(() => '')).toLowerCase().trim();
+              // Skip any button that looks like OneTrust
+              if (txt.includes('without') || txt.includes('ohne') ||
+                  txt.includes('confirm my choices') || txt.includes('save settings') ||
+                  txt.includes('cookie') || txt.includes('preference')) continue;
+              console.log(`  ➡️  SR consent: clicking "${txt}"`);
               await btn.click();
               await page.waitForTimeout(3000);
               clicked = true;
@@ -2004,44 +2029,40 @@ async function main() {
             }
             if (clicked) break;
           }
-          // Step B: If clicking "Continue without Accepting" landed us on OneTrust prefs page,
-          // escape it by clicking "Confirm My Choices" / "Save and Exit"
+
+          // ── Step 3: Check if we accidentally landed on OneTrust prefs page ──
           await page.waitForTimeout(500);
           const onOTPrefs = await page.$('input[name="ot-group-id-C0002"]').catch(() => null);
           if (onOTPrefs) {
-            console.log(`  🍪 OneTrust cookie prefs page detected — clicking Confirm My Choices`);
-            const otEscSelectors = [
-              'button.save-preference-btn-handler',
-              'button:has-text("Confirm My Choices")',
-              'button:has-text("Save Settings")',
-              'button:has-text("Save and Exit")',
-              '#accept-recommended-btn-handler',
-            ];
-            for (const sel of otEscSelectors) {
+            console.log(`  🍪 OneTrust cookie prefs page detected — force navigating back`);
+            // Try clicking escape buttons
+            for (const sel of ['button.save-preference-btn-handler', '#accept-recommended-btn-handler', 'button:has-text("Confirm My Choices")']) {
               const b = await page.$(sel).catch(() => null);
               if (b && await b.isVisible().catch(() => false)) {
                 await b.click();
-                // Wait for the OneTrust overlay to actually disappear
-                for (let otWait = 0; otWait < 10; otWait++) {
-                  await page.waitForTimeout(500);
-                  const still = await page.$('#onetrust-consent-sdk').catch(() => null);
-                  const vis = still ? await still.isVisible().catch(() => false) : false;
-                  if (!vis) break;
-                }
-                console.log(`  🍪 OneTrust overlay dismissed`);
+                await page.waitForTimeout(2000);
                 break;
               }
             }
-            // Nuclear fallback: if overlay still present, remove it via JS
+            // If still on OneTrust, nuke the page elements
             await page.evaluate(() => {
-              const ot = document.getElementById('onetrust-consent-sdk');
-              if (ot) ot.remove();
-              const backdrop = document.querySelector('.onetrust-pc-dark-filter');
-              if (backdrop) backdrop.remove();
+              for (const sel of ['#onetrust-consent-sdk', '#onetrust-pc-sdk', '.onetrust-pc-dark-filter']) {
+                const el = document.querySelector(sel);
+                if (el) el.remove();
+              }
               document.body.style.overflow = 'auto';
+              document.documentElement.style.overflow = 'auto';
             }).catch(() => {});
             await page.waitForTimeout(1000);
+            // Check if we're still stuck — if URL changed to OneTrust, go back
+            if (page.url().includes('onetrust') || page.url().includes('cookielaw')) {
+              console.log(`  🍪 Navigated to OneTrust domain — going back`);
+              await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
+              await page.waitForTimeout(3000);
+            }
           }
+          // Take debug screenshot before form filling
+          await page.screenshot({ path: 'debug_pre_form.png', fullPage: true }).catch(() => {});
         }
       }
       // ─────────────────────────────────────────────────────────────────────────────────────
