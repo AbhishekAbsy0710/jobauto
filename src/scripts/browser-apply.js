@@ -25,7 +25,7 @@ console.error = (...args) => {
   try { _appendLog(PROGRESS_LOG, '[ERR] ' + args.join(' ') + '\n'); } catch {}
 };
 
-import { chromium } from 'playwright';
+// chromium lifecycle managed by ./agents/browser-manager.js
 
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
@@ -65,15 +65,8 @@ import { recordSuccess, recordFailure, uploadProofScreenshot, trackColdEmail } f
 
 const RESUME_PATH = RESUME_PATH_CONST;
 
-async function sendDiscordEmbed(embed) {
-  if (!DISCORD_WEBHOOK) return;
-  try {
-    await fetch(DISCORD_WEBHOOK, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'JobAuto', embeds: [embed] })
-    });
-  } catch {}
-}
+// sendDiscordEmbed imported from ./agents/reporter.js
+
 
 // ============================================
 // AI FORM FILLER
