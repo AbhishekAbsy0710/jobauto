@@ -14,6 +14,13 @@ import { scrapeIndeed } from '../scrapers/indeed.js';
 import { scrapeStepStone } from '../scrapers/stepstone.js';
 import { scrapeLuxembourg } from '../scrapers/luxembourg.js';
 import { scrapeSmartRecruiters } from '../scrapers/smartrecruiters.js';
+import { scrapeGlassdoor } from '../scrapers/glassdoor.js';
+import { scrapeXing } from '../scrapers/xing.js';
+import { scrapeWorkday } from '../scrapers/workday.js';
+import { scrapePersonio } from '../scrapers/personio.js';
+import { scrapeTeamTailor } from '../scrapers/teamtailor.js';
+import { scrapeRecruitee } from '../scrapers/recruitee.js';
+import { scrapeWTTJ } from '../scrapers/welcometothejungle.js';
 import { loadConfig, loadPortals } from '../config.js';
 
 const supabase = createClient(
@@ -257,16 +264,23 @@ Deal breakers: ${dealBreakers.join(', ')}
   `.trim();
 
   const srCompanies = portals.smartrecruiters || [];
+  const workdayCompanies = portals.workday || [];
+  const personioCompanies = portals.personio || [];
+  const teamtailorCompanies = portals.teamtailor || [];
+  const recruiteeCompanies = portals.recruitee || [];
+
+  const totalPortalCos = srCompanies.length + workdayCompanies.length + personioCompanies.length + teamtailorCompanies.length + recruiteeCompanies.length;
 
   console.log('\n🚀 JobAuto — Scrape to Supabase');
-  console.log(`   Sources: ArbeitNow, RemoteOK, SmartRecruiters (${srCompanies.length} companies), Portals (Greenhouse/Lever/Ashby), LinkedIn, Indeed, StepStone, Luxembourg`);
+  console.log(`   Sources: ArbeitNow, RemoteOK, LinkedIn, Indeed, StepStone, Luxembourg, Glassdoor, Xing, WTTJ`);
+  console.log(`   Career Portals: Greenhouse/Lever/Ashby, SmartRecruiters, Workday, Personio, TeamTailor, Recruitee (${totalPortalCos} companies)`);
   console.log(`   Keywords: ${keywords.slice(0, 4).join(', ')}...`);
   console.log(`   Locations: ${locations.slice(0, 4).join(', ')}...`);
   console.log('');
 
   const results = { total: 0, new: 0, skipped: 0, errors: 0 };
 
-  // ── Batch 1: Fast APIs ────────────────────────────────────────────────────
+  // ── Batch 1: Fast JSON APIs ───────────────────────────────────────────────
   const [arbeitnowRes, remoteOkRes, portalsRes, smartrecruitersRes] = await Promise.allSettled([
     scrapeArbeitnow(keywords, locations),
     scrapeRemoteOK(keywords),
@@ -274,12 +288,23 @@ Deal breakers: ${dealBreakers.join(', ')}
     scrapeSmartRecruiters(srCompanies),
   ]);
 
-  // ── Batch 2: Web scrapers (with error tolerance) ──────────────────────────
-  const [linkedinRes, indeedRes, stepstoneRes, luxembourgRes] = await Promise.allSettled([
+  // ── Batch 2: New ATS career portals ───────────────────────────────────────
+  const [workdayRes, personioRes, teamtailorRes, recruiteeRes] = await Promise.allSettled([
+    scrapeWorkday(workdayCompanies).catch(e => { console.log(`  ⚠️  Workday: ${e.message}`); return []; }),
+    scrapePersonio(personioCompanies).catch(e => { console.log(`  ⚠️  Personio: ${e.message}`); return []; }),
+    scrapeTeamTailor(teamtailorCompanies).catch(e => { console.log(`  ⚠️  TeamTailor: ${e.message}`); return []; }),
+    scrapeRecruitee(recruiteeCompanies).catch(e => { console.log(`  ⚠️  Recruitee: ${e.message}`); return []; }),
+  ]);
+
+  // ── Batch 3: Web scrapers (with error tolerance) ──────────────────────────
+  const [linkedinRes, indeedRes, stepstoneRes, luxembourgRes, glassdoorRes, xingRes, wttjRes] = await Promise.allSettled([
     scrapeLinkedIn().catch(e => { console.log(`  ⚠️  LinkedIn: ${e.message}`); return []; }),
     scrapeIndeed().catch(e => { console.log(`  ⚠️  Indeed: ${e.message}`); return []; }),
     scrapeStepStone().catch(e => { console.log(`  ⚠️  StepStone: ${e.message}`); return []; }),
     scrapeLuxembourg().catch(e => { console.log(`  ⚠️  Luxembourg: ${e.message}`); return []; }),
+    scrapeGlassdoor().catch(e => { console.log(`  ⚠️  Glassdoor: ${e.message}`); return []; }),
+    scrapeXing().catch(e => { console.log(`  ⚠️  Xing: ${e.message}`); return []; }),
+    scrapeWTTJ().catch(e => { console.log(`  ⚠️  WTTJ: ${e.message}`); return []; }),
   ]);
 
   const allJobs = [
@@ -287,10 +312,17 @@ Deal breakers: ${dealBreakers.join(', ')}
     ...(remoteOkRes.status === 'fulfilled' ? remoteOkRes.value : []),
     ...(portalsRes.status === 'fulfilled' ? portalsRes.value : []),
     ...(smartrecruitersRes.status === 'fulfilled' ? smartrecruitersRes.value : []),
+    ...(workdayRes.status === 'fulfilled' ? workdayRes.value : []),
+    ...(personioRes.status === 'fulfilled' ? personioRes.value : []),
+    ...(teamtailorRes.status === 'fulfilled' ? teamtailorRes.value : []),
+    ...(recruiteeRes.status === 'fulfilled' ? recruiteeRes.value : []),
     ...(linkedinRes.status === 'fulfilled' ? linkedinRes.value : []),
     ...(indeedRes.status === 'fulfilled' ? indeedRes.value : []),
     ...(stepstoneRes.status === 'fulfilled' ? stepstoneRes.value : []),
     ...(luxembourgRes.status === 'fulfilled' ? luxembourgRes.value : []),
+    ...(glassdoorRes.status === 'fulfilled' ? glassdoorRes.value : []),
+    ...(xingRes.status === 'fulfilled' ? xingRes.value : []),
+    ...(wttjRes.status === 'fulfilled' ? wttjRes.value : []),
   ];
 
   console.log(`\n📋 Total scraped: ${allJobs.length} jobs — now evaluating & upserting...\n`);

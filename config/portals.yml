@@ -204,6 +204,124 @@ smartrecruiters:
     name: PwC Luxembourg
 
 
+# Workday boards — public JSON endpoint
+# API: POST https://{tenant}.{instance}.myworkdayjobs.com/wday/cxs/{tenant}/External/jobs
+# Last verified: 2026-05-23
+workday:
+  # ── German / DACH Enterprise ──────────────────
+  - tenant: SAP
+    instance: wd1
+    name: SAP (Walldorf)
+  - tenant: Siemens
+    instance: wd1
+    name: Siemens (Munich)
+  - tenant: BMW
+    instance: wd1
+    name: BMW (Munich)
+  - tenant: Bosch
+    instance: wd1
+    name: Bosch (Germany)
+  - tenant: Allianz
+    instance: wd3
+    name: Allianz (Munich)
+  - tenant: DeutscheBank
+    instance: wd1
+    name: Deutsche Bank (Frankfurt)
+  # ── Swiss Enterprise ──────────────────────────
+  - tenant: Roche
+    instance: wd1
+    name: Roche (Basel)
+  - tenant: Novartis
+    instance: wd1
+    name: Novartis (Basel)
+  - tenant: ABB
+    instance: wd5
+    name: ABB (Zurich)
+  - tenant: UBS
+    instance: wd3
+    name: UBS (Zurich)
+  # ── Benelux / Nordic ──────────────────────────
+  - tenant: Philips
+    instance: wd3
+    name: Philips (Amsterdam)
+  - tenant: ASML
+    instance: wd1
+    name: ASML (Eindhoven)
+  - tenant: Spotify
+    instance: wd5
+    name: Spotify (Stockholm)
+  # ── Remote/Global ─────────────────────────────
+  - tenant: Salesforce
+    instance: wd5
+    name: Salesforce (Remote EU)
+
+# Personio boards — public XML feed
+# API: https://{subdomain}.jobs.personio.de/xml
+# Last verified: 2026-05-23
+personio:
+  - subdomain: flixbus
+    name: FlixBus (Munich)
+  - subdomain: taxfix
+    name: Taxfix (Berlin)
+  - subdomain: trade-republic
+    name: Trade Republic (Berlin)
+  - subdomain: heycar
+    name: HeyCar (Berlin)
+  - subdomain: adjust
+    name: Adjust (Berlin)
+  - subdomain: tier
+    name: Tier Mobility (Berlin)
+  - subdomain: numbrs
+    name: Numbrs (Zurich)
+  - subdomain: scout24
+    name: Scout24 (Munich)
+  - subdomain: forto
+    name: Forto (Berlin)
+  - subdomain: omio
+    name: Omio (Berlin)
+
+# TeamTailor boards — public career pages with JSON-LD
+# API: https://career.{subdomain}.com/jobs
+# Last verified: 2026-05-23
+teamtailor:
+  - subdomain: klarna
+    name: Klarna (Stockholm)
+  - subdomain: bolt
+    name: Bolt (Tallinn/Berlin)
+  - subdomain: pleo
+    name: Pleo (Copenhagen)
+  - subdomain: futurice
+    name: Futurice (Helsinki)
+  - subdomain: hemnet
+    name: Hemnet (Stockholm)
+  - subdomain: storytel
+    name: Storytel (Stockholm)
+  - subdomain: tink
+    name: Tink (Stockholm)
+  - subdomain: norrsken
+    name: Norrsken (Stockholm)
+
+# Recruitee boards — public JSON API
+# API: https://{subdomain}.recruitee.com/api/offers
+# Last verified: 2026-05-23
+recruitee:
+  - subdomain: fonoa
+    name: Fonoa (Dublin/Remote)
+  - subdomain: staffbase
+    name: Staffbase (Dresden)
+  - subdomain: merantix
+    name: Merantix (Berlin)
+  - subdomain: billie
+    name: Billie (Berlin)
+  - subdomain: infarm
+    name: Infarm (Berlin)
+  - subdomain: gorillas
+    name: Gorillas (Berlin)
+  - subdomain: polarsteps
+    name: Polarsteps (Amsterdam)
+  - subdomain: studeersnel
+    name: StudeerSnel (Amsterdam)
+
 # ── Deal-breakers (auto-skipped before evaluation) ─────────────────────────
 deal_breakers:
   - US citizenship required
