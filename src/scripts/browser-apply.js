@@ -2541,6 +2541,7 @@ async function main() {
       // --- Platform-specific success: Lever SPA never changes URL ---
       const isLever = url.includes('jobs.lever.co') || url.includes('lever.co');
       const isAshby = url.includes('ashbyhq.com') || url.includes('jobs.ashby');
+      const isSR = url.includes('smartrecruiters.com');
       const leverSuccess = isLever && !hasErrors && (
         postSubmitLower.includes('application has been submitted') ||
         postSubmitLower.includes('your application was submitted') ||
@@ -2550,9 +2551,18 @@ async function main() {
         submitButtonGone
       );
       const ashbySuccess = isAshby && !hasErrors && submitButtonGone;
+      // SR oneclick-ui: submit stays on same URL (case may change), may show thank-you or the form just closes
+      const srSuccess = isSR && !hasErrors && (
+        isSuccessText ||
+        postSubmitLower.includes('thank you for your interest') ||
+        postSubmitLower.includes('your application has been sent') ||
+        postSubmitLower.includes('application submitted') ||
+        postSubmitLower.includes('we received your application') ||
+        submitButtonGone
+      );
 
       // SUCCESS = explicit signal OR (no errors + URL changed + submit gone) OR platform-specific
-      const isSuccess = !hasErrors && (isSuccessUrl || isSuccessText || (urlChanged && submitButtonGone) || leverSuccess || ashbySuccess);
+      const isSuccess = !hasErrors && (isSuccessUrl || isSuccessText || (urlChanged && submitButtonGone) || leverSuccess || ashbySuccess || srSuccess);
       
       if (isSuccess) {
         console.log('  ✅ Application verified successful!');
@@ -2650,11 +2660,13 @@ async function main() {
       } else {
         // No explicit success signal — ask the agent to look at the page and decide
         console.log('  🔧 No success signal detected — asking agent to evaluate page state...');
-        const pageText = await page.textContent('body').catch(() => '');
+        // Strip <noscript> content from page text — it always says "JavaScript is disabled" and confuses the LLM
+        const rawPageText = await page.textContent('body').catch(() => '');
+        const pageText = rawPageText.replace(/JavaScript is (disabled|not available|not enabled)[^.]*\.?/gi, '').trim();
         const currentUrl = page.url();
         const agentRaw = await callGroq(
-          'You are verifying if a job application was successfully submitted. Return only valid JSON.',
-          `URL: ${currentUrl.substring(0, 120)}\nPage text: ${pageText.substring(0, 800)}\n\nDid the application submit successfully? Return JSON: {"success": true/false, "reason": "brief explanation", "action": "optional next action if not success e.g. click submit button selector"}`,
+          'You are verifying if a job application was successfully submitted. Ignore any mentions of JavaScript being disabled — that is from a <noscript> tag and is irrelevant. Focus on whether the form was submitted. Return only valid JSON.',
+          `URL: ${currentUrl.substring(0, 120)}\nPage text: ${pageText.substring(0, 800)}\n\nDid the application submit successfully? If the page shows the job listing or application form without errors, or any thank-you/confirmation message, that means success. Return JSON: {"success": true/false, "reason": "brief explanation", "action": "optional next action if not success e.g. click submit button selector"}`,
           'llama-3.3-70b-versatile'
         );
         let agentVerdict = { success: false, reason: 'No response' };
