@@ -900,6 +900,7 @@ Return ONLY valid JSON with these keys:
     except Exception as e:
         log(f"  ⚠️ Tailoring failed ({e}), using base resume.")
         return fallback_path, None, "Base Resume (No modifications)"
+def apply_to_job(page, context, job, resume_path):
     """Full application flow for one job."""
     apply_link = job.get("apply_link", "")
     if not apply_link:
