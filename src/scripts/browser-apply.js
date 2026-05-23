@@ -1921,32 +1921,79 @@ async function main() {
         }
 
         // Now look for the actual Apply button on the job page
-        // Wait for SR SPA to render the Apply button
-        await page.waitForTimeout(2000);
+        // SR is a React SPA — the Apply button renders asynchronously after JS loads
+        console.log(`  🔍 Looking for SR Apply button (waiting for SPA render)...`);
         
-        const srApplyBtn = await page.$(
-          '[data-qa="btn-apply"], button[data-qa*="apply"], a[data-qa*="apply"], '
-          + 'button:has-text("Apply"), a:has-text("Apply now"), '
-          + 'a:has-text("Apply"), button:has-text("Apply Now"), '
-          + 'button:has-text("Jetzt bewerben"), a:has-text("Jetzt bewerben")'
-        ).catch(() => null);
+        // Wait for SR React app to fully mount (up to 10s)
+        let srApplyBtn = null;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await page.waitForTimeout(2000);
+          
+          // Try multiple selectors
+          srApplyBtn = await page.$(
+            '[data-qa="btn-apply"], a[data-qa="btn-apply"], button[data-qa="btn-apply"], '
+            + 'a:has-text("Apply"), button:has-text("Apply"), '
+            + 'a:has-text("Apply now"), button:has-text("Apply Now"), '
+            + 'a:has-text("Jetzt bewerben"), button:has-text("Jetzt bewerben")'
+          ).catch(() => null);
+          
+          if (srApplyBtn && await srApplyBtn.isVisible().catch(() => false)) break;
+          
+          // Scroll to trigger lazy-loading
+          if (attempt === 1) {
+            await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 3)).catch(() => {});
+          }
+          if (attempt === 2) {
+            await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+          }
+          
+          srApplyBtn = null;
+        }
+        
         if (srApplyBtn && await srApplyBtn.isVisible().catch(() => false)) {
           const applyBtnText = await srApplyBtn.textContent().catch(() => 'Apply');
-          console.log(`  🎯 Clicking SmartRecruiters Apply button: "${applyBtnText.trim()}"...`);
+          console.log(`  🎯 Clicking SR Apply button: "${applyBtnText.trim()}"...`);
           await srApplyBtn.click();
-          await page.waitForTimeout(3000);
-          console.log(`  ✅ Navigated to application form`);
+          await page.waitForTimeout(4000);
+          console.log(`  ✅ Navigated to application form (URL: ${page.url()})`);
         } else {
-          // Fallback: Try to navigate directly to SR application form URL
-          // SR apply forms are at: /applying or /application or append /applying to the job URL
-          const currentUrl = page.url();
-          if (currentUrl.includes('jobs.smartrecruiters.com') && !currentUrl.includes('applying')) {
-            const applyFormUrl = currentUrl.replace(/\/?$/, '/applying');
-            console.log(`  🔀 SR Apply button not found — navigating directly to: ${applyFormUrl}`);
-            await page.goto(applyFormUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-            await page.waitForTimeout(3000);
+          // Fallback: Try JavaScript click on any element with apply-related attributes
+          const jsClicked = await page.evaluate(() => {
+            // Look for any element with data-qa containing "apply"
+            const applyEl = document.querySelector('[data-qa="btn-apply"]') ||
+                           document.querySelector('a[href*="applying"]') ||
+                           document.querySelector('a[href*="application"]');
+            if (applyEl) {
+              applyEl.click();
+              return applyEl.textContent?.trim()?.substring(0, 40) || 'found';
+            }
+            return null;
+          }).catch(() => null);
+          
+          if (jsClicked) {
+            console.log(`  🎯 JS-clicked SR Apply element: "${jsClicked}"`);
+            await page.waitForTimeout(4000);
           } else {
-            console.log(`  ⚠️ SR Apply button not found and not on job page — proceeding anyway`);
+            // Last resort: navigate to /applying URL
+            const currentUrl = page.url();
+            if (currentUrl.includes('jobs.smartrecruiters.com') && !currentUrl.includes('applying')) {
+              // Log all links on the page to debug
+              const links = await page.evaluate(() => {
+                return Array.from(document.querySelectorAll('a[href]'))
+                  .filter(a => a.offsetParent !== null)
+                  .map(a => ({ text: (a.innerText || '').trim().substring(0, 40), href: a.href.substring(0, 100), qa: a.getAttribute('data-qa') || '' }))
+                  .slice(0, 10);
+              }).catch(() => []);
+              console.log(`  🔗 Page links (${links.length}):`);
+              for (const l of links) {
+                console.log(`    → "${l.text}" href="${l.href}" qa="${l.qa}"`);
+              }
+              
+              console.log(`  🔀 No Apply button found — trying direct /applying navigation`);
+              const applyFormUrl = currentUrl.replace(/\/?$/, '/applying');
+              await page.goto(applyFormUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+              await page.waitForTimeout(5000);
+            }
           }
         }
       }
