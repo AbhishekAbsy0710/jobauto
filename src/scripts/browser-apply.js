@@ -1929,12 +1929,16 @@ async function main() {
         for (let attempt = 0; attempt < 5; attempt++) {
           await page.waitForTimeout(2000);
           
-          // Try multiple selectors
+          // Try multiple selectors — SR companies customize button text!
+          // Wise uses "I'm interested", others use "Apply", "Apply now", etc.
           srApplyBtn = await page.$(
             '[data-qa="btn-apply"], a[data-qa="btn-apply"], button[data-qa="btn-apply"], '
+            + 'a[href*="oneclick-ui"], '
+            + 'a:has-text("I\'m interested"), button:has-text("I\'m interested"), '
             + 'a:has-text("Apply"), button:has-text("Apply"), '
             + 'a:has-text("Apply now"), button:has-text("Apply Now"), '
-            + 'a:has-text("Jetzt bewerben"), button:has-text("Jetzt bewerben")'
+            + 'a:has-text("Jetzt bewerben"), button:has-text("Jetzt bewerben"), '
+            + 'a:has-text("Ich bin interessiert"), button:has-text("Ich bin interessiert")'
           ).catch(() => null);
           
           if (srApplyBtn && await srApplyBtn.isVisible().catch(() => false)) break;
@@ -1959,13 +1963,23 @@ async function main() {
         } else {
           // Fallback: Try JavaScript click on any element with apply-related attributes
           const jsClicked = await page.evaluate(() => {
-            // Look for any element with data-qa containing "apply"
+            // Look for any element with apply-related attributes or text
             const applyEl = document.querySelector('[data-qa="btn-apply"]') ||
+                           document.querySelector('a[href*="oneclick-ui"]') ||
                            document.querySelector('a[href*="applying"]') ||
                            document.querySelector('a[href*="application"]');
             if (applyEl) {
               applyEl.click();
               return applyEl.textContent?.trim()?.substring(0, 40) || 'found';
+            }
+            // Also try links with "interested" text
+            const links = document.querySelectorAll('a');
+            for (const link of links) {
+              const text = (link.innerText || '').toLowerCase();
+              if (text.includes('interested') || text.includes('apply') || text.includes('bewerben')) {
+                link.click();
+                return link.innerText?.trim()?.substring(0, 40) || 'found';
+              }
             }
             return null;
           }).catch(() => null);
