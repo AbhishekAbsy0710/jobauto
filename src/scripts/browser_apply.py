@@ -746,7 +746,160 @@ def click_greenhouse_apply(page):
         return True
     return False
 
-def apply_to_job(page, context, job, resume_path):
+def generate_tailored_resume(context, job, fallback_path):
+    base_json_path = ROOT / "resume" / "base-resume.json"
+    if not base_json_path.exists():
+        return fallback_path, None, "Base Resume (No modifications)"
+
+    try:
+        base_json = json.loads(base_json_path.read_text(encoding="utf-8"))
+        
+        sys_prompt = """You are an expert technical recruiter. APPEND relevant content to the candidate's resume to maximise ATS match. You are STRICTLY FORBIDDEN from changing, deleting, or rewriting any existing content.
+
+RULES:
+- Do NOT modify existing bullets, titles, dates, companies, education, certifications, or contact info.
+- Do NOT fabricate experience the candidate does not have.
+- Only add content that is a truthful extension of existing experience.
+
+Return ONLY valid JSON with these keys:
+{
+  "title": "Updated headline matching the job title",
+  "summary_append": "1-2 sentences to APPEND (not replace) to the existing summary paragraph, linking candidate's experience to this specific role",
+  "experience_append": {
+    "CompanyName": ["new bullet to append", "optional second bullet"]
+  },
+  "new_skills": ["skill1", "skill2"]
+}
+
+- "experience_append": only include the 1-2 most relevant companies. Each bullet must be a truthful, specific extension of work already described (e.g. if Terraform is listed, add a JD-relevant Terraform bullet).
+- "new_skills": 3-8 keywords from the JD the candidate realistically has.
+- Return ONLY JSON — no explanation."""
+        
+        job_desc = job.get("description", "") or job.get("title", "")
+        job_desc = job_desc[:3000]
+        user_prompt = f"Job Title: {job.get('title')}\nCompany: {job.get('company')}\nJob Description:\n{job_desc}\n\nCandidate Base Resume JSON:\n{json.dumps(base_json)}"
+        
+        log(f"  🔄 Generating tailored resume for {job.get('company')}...")
+        raw = call_groq(sys_prompt, user_prompt)
+        if not raw or raw.strip() in ("{}", ""):
+            raw = call_gemini(sys_prompt, user_prompt)
+        
+        m = re.search(r'\{[\s\S]*\}', raw)
+        if not m:
+            raise ValueError("No JSON found in response")
+            
+        patch = json.loads(m.group())
+        changes_made = []
+        
+        if patch.get("title") and patch["title"] != base_json.get("personal", {}).get("title"):
+            base_json.setdefault("personal", {})["title"] = patch["title"]
+            changes_made.append(f'Headline -> "{patch["title"]}"')
+            
+        if patch.get("summary_append") and patch["summary_append"].strip():
+            append_text = patch["summary_append"].strip()
+            if append_text[:30] not in base_json.get("summary", ""):
+                base_json["summary"] = base_json.get("summary", "").rstrip() + " " + append_text
+                changes_made.append("Appended to summary")
+                
+        exp_append = patch.get("experience_append", {})
+        if isinstance(exp_append, dict):
+            for company, new_bullets in exp_append.items():
+                if not isinstance(new_bullets, list) or not new_bullets:
+                    continue
+                for exp_entry in base_json.get("experience", []):
+                    c_name = exp_entry.get("company", "").lower()
+                    if company.lower() in c_name or c_name in company.lower():
+                        added = 0
+                        for b in new_bullets:
+                            b = b.strip()
+                            if b and not any(b[:25].lower() in existing.lower() for existing in exp_entry.get("bullets", [])):
+                                exp_entry.setdefault("bullets", []).append(b)
+                                added += 1
+                        if added > 0:
+                            changes_made.append(f"+{added} bullet(s) @ {exp_entry.get('company')}")
+                        break
+                        
+        if patch.get("new_skills") and isinstance(patch["new_skills"], list) and patch["new_skills"]:
+            base_json.setdefault("skills", {})["Tailored for Role"] = ", ".join(patch["new_skills"])
+            changes_made.append(f"+{len(patch['new_skills'])} tailored skill keywords")
+            
+        changes_str = " | ".join(changes_made) if changes_made else "Base Resume (No modifications)"
+        
+        # HTML generation
+        template_path = ROOT / "src" / "scripts" / "resume-template.html"
+        html = template_path.read_text(encoding="utf-8")
+        
+        skills_html = "".join([f'<div class="skill-category">{k}</div><div>{v}</div>' for k, v in base_json.get("skills", {}).items()])
+        
+        exp_html = ""
+        for exp in base_json.get("experience", []):
+            bullets_html = "".join([f"<li>{b}</li>" for b in exp.get("bullets", [])])
+            exp_html += f'''
+            <div class="experience-item">
+              <div class="exp-header">
+                <div><span class="exp-title">{exp.get("role", "")}</span> | <span class="exp-company">{exp.get("company", "")}</span></div>
+                <div class="exp-date-loc">{exp.get("date", "")} • {exp.get("location", "")}</div>
+              </div>
+              <ul>{bullets_html}</ul>
+            </div>
+            '''
+            
+        edu_html = ""
+        for edu in base_json.get("education", []):
+            edu_html += f'''
+            <div class="edu-item">
+              <div><span class="edu-degree">{edu.get("degree", "")}</span>, <span class="edu-school">{edu.get("school", "")}</span></div>
+              <div class="exp-date-loc">{edu.get("date", "")} • {edu.get("location", "")}</div>
+            </div>
+            '''
+            
+        certs_html = "".join([f'<div class="cert-item">{c}</div>' for c in base_json.get("certifications", [])])
+        
+        personal = base_json.get("personal", {})
+        html = html.replace('{{name}}', personal.get("name", ""))
+        html = html.replace('{{title}}', personal.get("title", ""))
+        html = html.replace('{{location}}', personal.get("location", ""))
+        html = html.replace('{{email}}', personal.get("email", ""))
+        html = html.replace('{{phone}}', personal.get("phone", ""))
+        html = html.replace('{{linkedin}}', personal.get("linkedin", ""))
+        html = html.replace('{{github}}', personal.get("github", ""))
+        html = html.replace('{{summary}}', base_json.get("summary", ""))
+        html = html.replace('{{skills_html}}', skills_html)
+        html = html.replace('{{experience_html}}', exp_html)
+        html = html.replace('{{education_html}}', edu_html)
+        html = html.replace('{{certifications_html}}', certs_html)
+        
+        output_path = ROOT / "resume" / f"tailored_{job.get('id', int(time.time()))}.pdf"
+        
+        pdf_page = context.new_page()
+        pdf_page.set_content(html, wait_until="networkidle")
+        pdf_page.pdf(path=str(output_path), format="A4", margin={"top": "15mm", "bottom": "15mm", "left": "15mm", "right": "15mm"})
+        pdf_page.close()
+        
+        # Upload
+        public_url = None
+        if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+            try:
+                file_name = f"resume_{job.get('id', int(time.time()))}_{int(time.time())}.pdf"
+                with open(output_path, "rb") as f:
+                    data = f.read()
+                url = f"{SUPABASE_URL}/storage/v1/object/screenshots/{file_name}"
+                req = urllib.request.Request(url, data=data, method="POST")
+                req.add_header("apikey", SUPABASE_SERVICE_KEY)
+                req.add_header("Authorization", f"Bearer {SUPABASE_SERVICE_KEY}")
+                req.add_header("Content-Type", "application/pdf")
+                req.add_header("x-upsert", "true")
+                resp = urllib.request.urlopen(req, timeout=30)
+                if resp.status in (200, 201):
+                    public_url = f"{SUPABASE_URL}/storage/v1/object/public/screenshots/{file_name}"
+                    log("  📎 Tailored resume generated & uploaded")
+            except Exception as e:
+                log(f"  ⚠️ Failed to upload tailored resume: {e}")
+                
+        return str(output_path), public_url, changes_str
+    except Exception as e:
+        log(f"  ⚠️ Tailoring failed ({e}), using base resume.")
+        return fallback_path, None, "Base Resume (No modifications)"
     """Full application flow for one job."""
     apply_link = job.get("apply_link", "")
     if not apply_link:
@@ -1205,7 +1358,9 @@ def main():
             page = context.new_page()
             Stealth().apply_stealth_sync(page)
             try:
-                success, fail_reason, err_screenshot = apply_to_job(page, context, job, str(RESUME_PATH))
+                tailored_pdf_path, tailored_public_url, tailored_changes = generate_tailored_resume(context, job, str(RESUME_PATH))
+                
+                success, fail_reason, err_screenshot = apply_to_job(page, context, job, tailored_pdf_path)
 
                 from datetime import timezone as tz
                 if success:
@@ -1234,6 +1389,8 @@ def main():
                         update_data = {"status": "applied", "applied_at": datetime.now(tz.utc).isoformat()}
                         if proof_url:
                             update_data["proof_url"] = proof_url
+                        if tailored_public_url:
+                            update_data["tailored_resume_url"] = tailored_public_url
                         supabase_update("jobs", update_data, job_id)
 
                     send_discord({
