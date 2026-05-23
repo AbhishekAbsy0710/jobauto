@@ -59,6 +59,9 @@ import {
 } from './agents/consent-handler.js';
 import { verifySubmission } from './agents/verification-agent.js';
 import { submitForm } from './agents/form-submitter.js';
+import { createBrowser, createContext, closeBrowser } from './agents/browser-manager.js';
+import { reportApplied, reportFailed, sendRunSummary } from './agents/reporter.js';
+import { recordSuccess, recordFailure, uploadProofScreenshot, trackColdEmail } from './agents/dashboard-updater.js';
 
 const RESUME_PATH = RESUME_PATH_CONST;
 
@@ -1161,12 +1164,7 @@ async function main() {
     return { ...j, eval_id: e?.id, grade: e?.letter_grade, score: e?.weighted_score || 0 };
   }).sort((a, b) => (b.score || 0) - (a.score || 0)); // best-scored first
 
-  // LIMIT: Max 25 jobs per run
-  const MAX_JOBS_PER_RUN = 25;
-  // DIVERSITY: Max 3 jobs per company in the pre-filtered batch
-  const MAX_PREFILTER_PER_COMPANY = 3;
-  // BLOCK LIST: Companies confirmed to block bots or have non-confirming forms
-  const PAGE_LOAD_BLOCKED = ['adyen', 'cloudflare', 'stripe', 'planetscale', 'clickhouse'];
+  // MAX_JOBS_PER_RUN, MAX_PREFILTER_PER_COMPANY, PAGE_LOAD_BLOCKED imported from agents/constants.js
 
   // GREENHOUSE FILTER: job-boards.greenhouse.io is blocked by Cloudflare on GHA runner IPs.
   // Skip on LOCAL_RUN=true (Mac) — home IP is not on Cloudflare blocklist.
@@ -1200,98 +1198,15 @@ async function main() {
 
   console.log(`\n🚀 Auto-applying to ${jobs.length} jobs via Playwright (AI Enabled)...\n`);
 
-  const isHeaded = process.env.HEADED === 'true';
-  const browser = await chromium.launch({
-    headless: !isHeaded,
-    slowMo: isHeaded ? 300 : 150,
-    timeout: 30000,
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-web-security',
-      '--disable-dev-shm-usage',
-    ],
-  });
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    viewport: { width: 1440, height: 900 },
-    locale: 'en-US',
-    timezoneId: 'Europe/Berlin',
-    geolocation: { longitude: 11.58, latitude: 48.14 },
-    permissions: ['geolocation'],
-    extraHTTPHeaders: {
-      'Accept-Language': 'en-US,en;q=0.9',
-      'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-      'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': '"macOS"',
-    },
-  });
-  // Erase navigator.webdriver on every new page to defeat basic bot detection
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    window.chrome = { runtime: {} };
-  });
-  
-  // Set a reasonable timeout — 10s for async form rendering
-  context.setDefaultTimeout(10000);
+  // Browser lifecycle managed by agents/browser-manager.js
+  const browser = await createBrowser();
+  const context = await createContext(browser);
 
   const results = { applied: 0, failed: 0, skipped: 0 };
   const appliedJobs = [];
   const failedJobs = [];
 
-  // Target roles — IT/engineering keywords that must appear in the title
-  const TARGET_KEYWORDS = [
-    'data engineer', 'data analyst', 'data scientist', 'analytics engineer',
-    'devops', 'cloud engineer', 'cloud architect', 'platform engineer',
-    'backend', 'fullstack', 'full stack', 'full-stack',
-    'software engineer', 'software developer',
-    'ai engineer', 'ml engineer', 'machine learning', 'mlops',
-    'infrastructure engineer', 'site reliability', 'sre',
-    'frontend engineer', 'frontend developer',
-    'tech lead', 'lead engineer', 'staff engineer', 'principal engineer',
-    'automation engineer', 'automation developer',
-    'solutions architect', 'cloud consultant', 'devops consultant',
-    'data platform', 'data infrastructure',
-    'ki-agent', 'ki engineer',
-    'security engineer', 'security analyst', 'cybersecurity', 'devsecops', 'appsec', 'cloud security',
-    'it support', 'it specialist', 'systems engineer', 'systems administrator', 'sysadmin',
-    'network engineer', 'network administrator', 'network architect',
-  ];
-  // Non-IT roles to hard-skip regardless of other signals
-  const SKIP_KEYWORDS = [
-    // Trades / manual / non-tech (German)
-    'kosmetik', 'werkstudent', 'praktikum', 'praktikant', 'pflege', 'fahrer',
-    'tischler', 'maler', 'fotovoltaik', 'photovoltaik', 'elektriker',
-    'reinigung', 'handwerk', 'schweißer', 'sanitär', 'lagerlogistik',
-    'sozialarbeiter', 'krankenpflege', 'bürokaufmann', 'kaufmann',
-    'steuerberater', 'buchhalter',
-    // Marketing / social media
-    'influencer', 'marketing manager', 'social media manager',
-    'community manager', 'brand manager', 'seo manager',
-    'performance marketing', 'campaign manager', 'content creator',
-    'copywriter', 'redakteur', 'tiktok', 'reels', 'journalist',
-    // Sales / BD
-    'sales manager', 'sales representative', 'sales engineer',
-    'account executive', 'account manager', 'business development',
-    'customer success manager', 'partnership manager', 'revenue operations',
-    // Non-IC management
-    'engineering manager', 'vp of engineering', 'head of engineering',
-    'director of engineering', 'chief technology officer',
-    'tax lead', 'tax manager', 'tax consultant', 'finance manager',
-    'hr manager', 'recruiter', 'talent acquisition', 'people operations',
-    // Technical but out-of-scope
-    'c++ developer', 'embedded', 'firmware', 'hardware engineer',
-    'mechanical engineer', 'civil engineer', 'chemical engineer',
-    'nurse', 'doctor', 'physician',
-    'personalberater',
-  ];
-
-  // Per-company application cap — Ashby/Greenhouse block after 2-3 apps from same person
-  const MAX_PER_COMPANY = 2;
+  // TARGET_KEYWORDS, SKIP_KEYWORDS, MAX_PER_COMPANY imported from agents/constants.js
   const companiesApplied = {}; // track how many we've applied to per company this run
 
   for (const job of jobs) {
@@ -2428,86 +2343,29 @@ async function main() {
     }
   }
 
-  await browser.close();
+  await closeBrowser(browser);
 
   console.log(`\n📊 Results: ${results.applied} applied, ${results.failed} failed, ${results.skipped || 0} skipped\n`);
 
+  // ── Report Applied Jobs via Reporter Agent ──────────────────────────────────
   for (const aj of appliedJobs) {
-    const proofUrl = aj.screenshotUrl || undefined;
-    const coldEmailStatus = aj.coldEmailSent
-      ? `✅ Cold email sent to \`${aj.coldEmailTarget}\``
-      : `❌ Cold email not sent${aj.coldEmailError ? ` (${aj.coldEmailError})` : ''}`;
-    
-    const fields = [
-      { name: '⭐ ATS Score', value: `${aj.score ? aj.score.toFixed(1) : '?'} / 5.0`, inline: true },
-      { name: '📄 Resume Used', value: aj.resumeUsed || basename(RESUME_PATH), inline: true },
-      { name: '📧 Cold Email', value: coldEmailStatus, inline: false }
-    ];
-    if (aj.coldEmailSent && aj.coldEmailSubject) {
-      fields.push({ name: '✉️ Subject', value: aj.coldEmailSubject.substring(0, 256), inline: false });
-      fields.push({ name: '📝 Body', value: aj.coldEmailBody ? `\`\`\`text\n${aj.coldEmailBody.substring(0, 1000)}\n\`\`\`` : 'No body', inline: false });
-    }
-
-    await sendDiscordEmbed({
-      title: `✅ Auto-Applied: ${aj.title}`,
-      description: `Successfully applied to **${aj.company}**!${aj.needsEmailVerification ? '\n\n⚠️ **ATTENTION:** Email verification required — check inbox!' : ''}`,
-      color: 0x00d2a0,
-      fields: [
-        { name: '🏢 Company', value: aj.company || '—', inline: true },
-        { name: '📍 Location', value: aj.location || 'Europe', inline: true },
-        { name: '⭐ ATS Score', value: `**${aj.score ? aj.score.toFixed(1) : '?'} / 5.0**`, inline: true },
-        { name: '🔗 Apply Link', value: `[Open Job](${aj.apply_link})`, inline: true },
-        { name: '📄 Resume', value: aj.resumeUsed || basename(RESUME_PATH), inline: true },
-        { name: '📧 Cold Email', value: coldEmailStatus, inline: true },
-      ],
-      image: proofUrl ? { url: proofUrl } : undefined,
-      timestamp: new Date().toISOString(),
-      footer: { text: 'JobAuto — Auto-Applied ✅' }
+    await reportApplied(aj, supabase, {
+      proofScreenshotPath: aj.errorScreenshotPath, // reuse proof path
+      coldEmail: {
+        sent: aj.coldEmailSent || false,
+        subject: aj.coldEmailSubject || '',
+        body: aj.coldEmailBody || '',
+      },
     });
-    await new Promise(r => setTimeout(r, 500));
   }
 
-  if (failedJobs.length > 0) {
-    for (const fj of failedJobs) {
-      // Upload error screenshot to 'proofs' path — SEPARATE from resume pdf_path
-      let errorProofUrl = null;
-      if (fj.errorScreenshotPath && existsSync(fj.errorScreenshotPath)) {
-        try {
-          const screenshotBuffer = readFileSync(fj.errorScreenshotPath);
-          const fileName = `error_${fj.eval_id}_${Date.now()}.jpeg`;
-          await supabase.storage.from('screenshots').upload(fileName, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
-          errorProofUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${fileName}`;
-        } catch (err) {}
-      }
-
-      const failureReason = fj.hasCaptcha ? 'Captcha Blocked' : (fj.errorMessage || 'Validation Error');
-
-      await supabase.from('applications').insert({
-        evaluation_id: fj.eval_id,
-        method: failureReason.substring(0, 100),
-        status: 'failed',
-        pdf_path: fj.tailoredPublicUrl || null,       // resume PDF (may be null if failed before tailoring)
-        screenshot_url: errorProofUrl || null,         // error screenshot — NEVER mixed with pdf_path
-        applied_at: new Date().toISOString()
-      });
-
-      await sendDiscordEmbed({
-        title: `❌ Auto-Apply Failed: ${fj.title}`,
-        description: `Failed to apply to **${fj.company}** — moved to Manual Queue.`,
-        color: 0xff4500,
-        fields: [
-          { name: '🏢 Company', value: fj.company || '—', inline: true },
-          { name: '⭐ ATS Score', value: `${fj.score ? fj.score.toFixed(1) : '?'} / 5.0`, inline: true },
-          { name: '❌ Reason', value: failureReason.substring(0, 200), inline: false },
-          { name: '👉 Apply Manually', value: `[Click Here](${fj.apply_link})`, inline: false },
-        ],
-        image: errorProofUrl ? { url: errorProofUrl } : undefined,
-        timestamp: new Date().toISOString(),
-        footer: { text: 'JobAuto — Manual Apply Required ⚠️' }
-      });
-      await new Promise(r => setTimeout(r, 500));
-    }
+  // ── Report Failed Jobs via Reporter Agent ───────────────────────────────────
+  for (const fj of failedJobs) {
+    await reportFailed(fj, supabase);
   }
+
+  // ── Run Summary via Reporter Agent ──────────────────────────────────────────
+  await sendRunSummary(results);
 }
 
 main().catch(e => {
