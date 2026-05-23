@@ -367,6 +367,10 @@ async function fillDynamicFields(page) {
       if (['first_name', 'last_name', 'fname', 'lname', 'name'].includes(name) || name.includes('email') || name.includes('phone') || el.type === 'file' || el.type === 'submit') continue;
       // Skip IntlTelInput phone country-code picker (iti-*) — it's handled by fillBaseFields
       if (name.startsWith('iti-') || name.includes('__search-input') || name.includes('search-input')) continue;
+      // Skip OneTrust cookie consent fields — these are NOT application form fields
+      if (name.includes('ot-group-id') || name.includes('onetrust') || name.includes('vendor-search-handler') || name.includes('select-all-hosts') || name.includes('select-all-vendor') || name.includes('select-all-vendor-leg')) continue;
+      // Skip fields inside OneTrust overlay container
+      if (el.closest('#onetrust-consent-sdk') || el.closest('#onetrust-pc-sdk') || el.closest('.onetrust-pc-dark-filter')) continue;
       if (el.disabled) continue;
 
       let labelText = '';
@@ -2016,9 +2020,27 @@ async function main() {
             for (const sel of otEscSelectors) {
               const b = await page.$(sel).catch(() => null);
               if (b && await b.isVisible().catch(() => false)) {
-                await b.click(); await page.waitForTimeout(2500); break;
+                await b.click();
+                // Wait for the OneTrust overlay to actually disappear
+                for (let otWait = 0; otWait < 10; otWait++) {
+                  await page.waitForTimeout(500);
+                  const still = await page.$('#onetrust-consent-sdk').catch(() => null);
+                  const vis = still ? await still.isVisible().catch(() => false) : false;
+                  if (!vis) break;
+                }
+                console.log(`  🍪 OneTrust overlay dismissed`);
+                break;
               }
             }
+            // Nuclear fallback: if overlay still present, remove it via JS
+            await page.evaluate(() => {
+              const ot = document.getElementById('onetrust-consent-sdk');
+              if (ot) ot.remove();
+              const backdrop = document.querySelector('.onetrust-pc-dark-filter');
+              if (backdrop) backdrop.remove();
+              document.body.style.overflow = 'auto';
+            }).catch(() => {});
+            await page.waitForTimeout(1000);
           }
         }
       }
@@ -2100,6 +2122,26 @@ async function main() {
       while (!submitted && stepCount < MAX_STEPS) {
         stepCount++;
         console.log(`  📄 Form step ${stepCount}/${MAX_STEPS}...`);
+
+        // Safety: dismiss any lingering OneTrust cookie overlay before filling
+        const otOverlay = await page.$('#onetrust-consent-sdk').catch(() => null);
+        if (otOverlay && await otOverlay.isVisible().catch(() => false)) {
+          console.log(`  🍪 OneTrust overlay still visible on step ${stepCount} — force-removing`);
+          for (const sel of ['button.save-preference-btn-handler', 'button:has-text("Confirm My Choices")', '#accept-recommended-btn-handler']) {
+            const b = await page.$(sel).catch(() => null);
+            if (b && await b.isVisible().catch(() => false)) {
+              await b.click(); await page.waitForTimeout(1500); break;
+            }
+          }
+          await page.evaluate(() => {
+            const ot = document.getElementById('onetrust-consent-sdk');
+            if (ot) ot.remove();
+            const bd = document.querySelector('.onetrust-pc-dark-filter');
+            if (bd) bd.remove();
+            document.body.style.overflow = 'auto';
+          }).catch(() => {});
+          await page.waitForTimeout(1000);
+        }
 
         // Re-fill fields on every new step (each step = new DOM)
         await fillBaseFields(page, activeResumePath);
