@@ -1952,111 +1952,128 @@ async function main() {
       // the Continue / action-button becomes enabled and can be clicked.
       const isSmartRecruitersPage = page.url().includes('smartrecruiters.com');
       if (isSmartRecruitersPage) {
-        // ── Step 0: Accept OneTrust cookies via API (don't remove DOM — GDPR form is inside it) ──
-        await page.evaluate(() => {
-          // Accept all cookies via OneTrust API if available — this hides the cookie BANNER
-          // but preserves the GDPR consent form that SmartRecruiters embeds
-          if (typeof OneTrust !== 'undefined') {
-            try { if (OneTrust.AllowAll) OneTrust.AllowAll(); } catch(e) {}
-            try { if (OneTrust.Close) OneTrust.Close(); } catch(e) {}
+        // ── SmartRecruiters OneTrust Cookie + GDPR consent flow ──────────────────
+        // Strategy: Try TWO approaches:
+        //   A) OneTrust API call (AllowAll) — this accepts ALL cookies + GDPR in one shot
+        //   B) If API unavailable, manually check boxes + click Confirm
+        
+        // Approach A: Use OneTrust JS API to accept all consent
+        const otApiWorked = await page.evaluate(() => {
+          if (typeof OneTrust !== 'undefined' && OneTrust.AllowAll) {
+            try { OneTrust.AllowAll(); return true; } catch(e) { return false; }
           }
-          // Only remove the cookie BANNER overlay, NOT the full consent SDK
-          const banner = document.getElementById('onetrust-banner-sdk');
-          if (banner) banner.remove();
-          const backdrop = document.querySelector('.onetrust-pc-dark-filter');
-          if (backdrop) backdrop.remove();
-          document.body.style.overflow = 'auto';
-          document.documentElement.style.overflow = 'auto';
-        }).catch(() => {});
-        await page.waitForTimeout(1000);
-        console.log(`  🍪 OneTrust cookie banner dismissed (GDPR form preserved)`);
+          return false;
+        }).catch(() => false);
 
-        // ── Step 1: Check GDPR consent checkboxes ──
-        const gdprCheckboxSelectors = [
-          '#vendor-search-handler',
-          '#chkbox-id',
-          '#select-all-hosts-groups-handler',
-          '#select-all-vendor-groups-handler',
-          '#select-all-vendor-leg-handler',
-        ];
-        let gdprFound = false;
-        await page.waitForTimeout(1500);
-        for (const sel of gdprCheckboxSelectors) {
-          const cb = await page.$(sel).catch(() => null);
-          if (cb) {
-            const isChecked = await cb.isChecked().catch(() => false);
-            if (!isChecked) {
-              await cb.scrollIntoViewIfNeeded().catch(() => {});
-              await cb.click({ force: true }).catch(() => {});
-              await page.waitForTimeout(300);
-            }
-            gdprFound = true;
-          }
-        }
-        if (gdprFound) {
-          console.log(`  ✅ SmartRecruiters GDPR consent checkboxes accepted`);
-          await page.waitForTimeout(800);
-
-          // ── Step 2: Click "Confirm My Choices" to save consent and close the overlay ──
-          // The GDPR checkboxes ARE OneTrust preference center controls.
-          // After checking them, the correct button is the OT save/confirm button.
-          const confirmSelectors = [
-            'button.save-preference-btn-handler',
-            '#accept-recommended-btn-handler',
-            'button:has-text("Confirm My Choices")',
-            'button:has-text("Save Settings")',
-            'button:has-text("Save and Exit")',
-            'button:has-text("Auswahl bestätigen")',
-            'button[data-qa="action-button"]',         // SR fallback
-            'button:has-text("Continue")',
-            'button[type="submit"]',
-          ];
-          let clicked = false;
-          for (const sel of confirmSelectors) {
-            const btns = await page.$$(sel).catch(() => []);
-            for (const btn of btns) {
-              if (!await btn.isVisible().catch(() => false)) continue;
-              const txt = (await btn.textContent().catch(() => '')).toLowerCase().trim();
-              if (txt.includes('without') || txt.includes('ohne') || txt.includes('reject')) continue;
-              console.log(`  ➡️  Consent: clicking "${txt}"`);
-              await btn.click();
-              clicked = true;
-              break;
-            }
-            if (clicked) break;
-          }
-
-          if (clicked) {
-            // Wait for OneTrust overlay to disappear (reveals the actual SR form)
-            for (let w = 0; w < 10; w++) {
-              await page.waitForTimeout(500);
-              const otPC = await page.$('#onetrust-pc-sdk').catch(() => null);
-              const otVis = otPC ? await otPC.isVisible().catch(() => false) : false;
-              if (!otVis) break;
-            }
-            console.log(`  ✅ Consent overlay closed — proceeding to application form`);
-          } else {
-            console.log(`  ⚠️ No consent confirm button found — trying to proceed anyway`);
-          }
-
+        if (otApiWorked) {
+          console.log(`  🍪 OneTrust API: AllowAll() succeeded — all consent accepted`);
           await page.waitForTimeout(2000);
-          // Take debug screenshot to see what page we're on now
-          await page.screenshot({ path: 'debug_pre_form.png', fullPage: true }).catch(() => {});
+          // Force-clear any lingering overlay DOM elements
+          await page.evaluate(() => {
+            for (const sel of ['#onetrust-consent-sdk', '#onetrust-pc-sdk', '#onetrust-banner-sdk', '.onetrust-pc-dark-filter']) {
+              const el = document.querySelector(sel);
+              if (el) el.remove();
+            }
+            document.body.style.overflow = 'auto';
+            document.documentElement.style.overflow = 'auto';
+          }).catch(() => {});
+          await page.waitForTimeout(1500);
+          console.log(`  ✅ OneTrust overlay cleared — proceeding to application form`);
+        } else {
+          // Approach B: Manual interaction with OneTrust preference center
+          console.log(`  🍪 OneTrust API unavailable — trying manual consent flow`);
+          
+          // First remove banner (NOT the preference center)
+          await page.evaluate(() => {
+            const banner = document.getElementById('onetrust-banner-sdk');
+            if (banner) banner.remove();
+          }).catch(() => {});
+          await page.waitForTimeout(1000);
 
-          // ── Step 3: If still on OneTrust prefs page, force-clear ──
-          const onOTPrefs = await page.$('input[name="ot-group-id-C0002"]').catch(() => null);
-          if (onOTPrefs) {
-            console.log(`  🍪 OneTrust overlay still present — force-removing`);
-            await page.evaluate(() => {
-              for (const sel of ['#onetrust-consent-sdk', '#onetrust-pc-sdk', '.onetrust-pc-dark-filter']) {
-                const el = document.querySelector(sel);
-                if (el) el.remove();
+          // Check GDPR consent checkboxes
+          const gdprCheckboxSelectors = [
+            '#vendor-search-handler',
+            '#chkbox-id',
+            '#select-all-hosts-groups-handler',
+            '#select-all-vendor-groups-handler',
+            '#select-all-vendor-leg-handler',
+          ];
+          let gdprFound = false;
+          await page.waitForTimeout(1500);
+          for (const sel of gdprCheckboxSelectors) {
+            const cb = await page.$(sel).catch(() => null);
+            if (cb) {
+              const isChecked = await cb.isChecked().catch(() => false);
+              if (!isChecked) {
+                await cb.scrollIntoViewIfNeeded().catch(() => {});
+                await cb.click({ force: true }).catch(() => {});
+                await page.waitForTimeout(300);
               }
-              document.body.style.overflow = 'auto';
-              document.documentElement.style.overflow = 'auto';
-            }).catch(() => {});
-            await page.waitForTimeout(1000);
+              gdprFound = true;
+            }
           }
+          if (gdprFound) {
+            console.log(`  ✅ GDPR checkboxes accepted — looking for confirm button`);
+            await page.waitForTimeout(800);
+
+            const confirmSelectors = [
+              'button.save-preference-btn-handler',
+              '#accept-recommended-btn-handler',
+              'button:has-text("Confirm My Choices")',
+              'button:has-text("Save Settings")',
+              'button:has-text("Save and Exit")',
+              'button:has-text("Auswahl bestätigen")',
+            ];
+            let clicked = false;
+            for (const sel of confirmSelectors) {
+              const btns = await page.$$(sel).catch(() => []);
+              for (const btn of btns) {
+                if (!await btn.isVisible().catch(() => false)) continue;
+                const txt = (await btn.textContent().catch(() => '')).toLowerCase().trim();
+                if (txt.includes('without') || txt.includes('ohne') || txt.includes('reject')) continue;
+                console.log(`  ➡️  Consent: clicking "${txt}"`);
+                await btn.click();
+                clicked = true;
+                break;
+              }
+              if (clicked) break;
+            }
+
+            if (clicked) {
+              for (let w = 0; w < 10; w++) {
+                await page.waitForTimeout(500);
+                const otPC = await page.$('#onetrust-pc-sdk').catch(() => null);
+                const otVis = otPC ? await otPC.isVisible().catch(() => false) : false;
+                if (!otVis) break;
+              }
+              console.log(`  ✅ Consent overlay closed`);
+            } else {
+              console.log(`  ⚠️ No consent confirm button found — force-clearing overlay`);
+            }
+          }
+
+          // Force-clear any remaining OneTrust overlay
+          await page.evaluate(() => {
+            for (const sel of ['#onetrust-consent-sdk', '#onetrust-pc-sdk', '.onetrust-pc-dark-filter']) {
+              const el = document.querySelector(sel);
+              if (el) el.remove();
+            }
+            document.body.style.overflow = 'auto';
+            document.documentElement.style.overflow = 'auto';
+          }).catch(() => {});
+          await page.waitForTimeout(2000);
+        }
+
+        // After consent handling, wait for SR application form to render
+        // SR forms are SPA-rendered after consent — give them time
+        await page.waitForTimeout(2000);
+        await page.screenshot({ path: 'debug_pre_form.png', fullPage: true }).catch(() => {});
+        
+        // Check if the SR application form actually rendered
+        const hasFormFields = await page.$('input[type="text"], input[type="email"], input[type="file"], button[data-qa="action-button"]').catch(() => null);
+        if (!hasFormFields) {
+          console.log(`  ⚠️ SR form not yet visible — waiting extra 3s for SPA render...`);
+          await page.waitForTimeout(3000);
         }
       }
       // ─────────────────────────────────────────────────────────────────────────────────────
