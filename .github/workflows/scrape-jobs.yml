@@ -2,8 +2,8 @@ name: Scrape Jobs
 
 on:
   schedule:
-    # Run at 5:45 AM Berlin time (UTC+2) Mon–Fri — 15 min before auto-apply
-    - cron: '45 3 * * 1-5'
+    # Run at 5:45 AM Berlin time (UTC+2) every day — 15 min before auto-apply
+    - cron: '45 3 * * *'
   workflow_dispatch:  # allow manual trigger
 
 jobs:
