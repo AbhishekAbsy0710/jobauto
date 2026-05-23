@@ -1,16 +1,18 @@
 /**
  * agents/llm-client.js — LLM Communication Agent
  * 
- * Centralized AI/LLM calls with automatic model cascading and rate-limit handling.
- * Models cascade: llama-3.1-8b → gemma2-9b → llama3-8b-8192 → llama-3.3-70b → Gemini 2.0 Flash
+ * Handles all AI model calls with automatic fallback chains:
+ *   Groq (8b → gemma2 → 8k → Gemini) for TPD limits
+ *   Groq TPM retry with backoff
+ *   Model decommission auto-switch
  * 
  * Exports:
- *   - askAI(systemPrompt, userPrompt, opts) — main entry point
- *   - callGroq(systemPrompt, userPrompt, model) — direct Groq call
- *   - callGemini(systemPrompt, userPrompt) — direct Gemini call
+ *   - callGroq(systemPrompt, userPrompt, model?) → string (JSON)
+ *   - callGemini(systemPrompt, userPrompt) → string (JSON)
+ *   - healAndRetry(page, context, maxAttempts?) → boolean
  */
 
-// ── Gemini fallback (1M tokens/day free) ──────────────────────────────────────
+// ── Gemini Fallback (1M tokens/day free) ───────────────────────────────────────
 export async function callGemini(systemPrompt, userPrompt) {
   if (!process.env.GEMINI_API_KEY) {
     console.log('  ⚠️ GEMINI_API_KEY not set — cannot use Gemini fallback');
@@ -43,7 +45,7 @@ export async function callGemini(systemPrompt, userPrompt) {
   }
 }
 
-// ── Groq with model cascade and rate-limit handling ──────────────────────────
+// ── Groq API with TPD/TPM cascade ──────────────────────────────────────────────
 export async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant') {
   if (!process.env.GROQ_API_KEY) return '{}';
   try {
@@ -89,7 +91,7 @@ export async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-i
       //   llama-3.1-8b-instant : 500k TPD  (default)
       //   gemma2-9b-it         : 500k TPD  (fallback #1)
       //   llama3-8b-8192       : 500k TPD  (fallback #2)
-      //   Gemini 2.0 Flash     : 1M  TPD   (fallback #3 — virtually unlimited)
+      //   Gemini 1.5 Flash     : 1M  TPD   (fallback #3 — virtually unlimited)
       //   → apply with base resume          (last resort)
       if (res.status === 429 && errText.includes('TPD')) {
         if (model === 'llama-3.1-8b-instant') {
@@ -101,13 +103,14 @@ export async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-i
           return await callGroq(systemPrompt, userPrompt, 'llama3-8b-8192');
         }
         if (model === 'llama3-8b-8192') {
-          console.log(`  🔄 All Groq models hit daily limit → trying Gemini 2.0 Flash...`);
+          console.log(`  🔄 All Groq models hit daily limit → trying Gemini 1.5 Flash...`);
           return await callGemini(systemPrompt, userPrompt);
         }
         console.log(`  ⚠️ All AI models hit daily limit. Applying with base resume...`);
         return '{}';
       }
       
+      // TPM (per-minute token limit) — retry with backoff
       if (res.status === 429 && errText.includes('TPM')) {
         const waitMatch = errText.match(/try again in ([\d\.]+)s/);
         const waitTime = waitMatch ? (parseFloat(waitMatch[1]) * 1000) + 1000 : 15000;
@@ -126,27 +129,15 @@ export async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-i
   }
 }
 
-// ── Unified AI entry point ──────────────────────────────────────────────────
+// ── Self-Healing Agent Loop ────────────────────────────────────────────────────
 /**
- * Ask AI a question with automatic model selection.
- * @param {string} systemPrompt - System prompt
- * @param {string} userPrompt - User prompt
- * @param {object} opts - Options
- * @param {string} opts.model - Override model (default: 'llama-3.1-8b-instant')
- * @param {boolean} opts.preferGemini - Use Gemini directly (default: false)
- * @returns {string} Raw JSON string from AI
- */
-export async function askAI(systemPrompt, userPrompt, opts = {}) {
-  if (opts.preferGemini) {
-    return await callGemini(systemPrompt, userPrompt);
-  }
-  return await callGroq(systemPrompt, userPrompt, opts.model || 'llama-3.1-8b-instant');
-}
-
-// ── Self-Healing Agent Loop ──────────────────────────────────────────────────
-/**
- * When a page action fails, capture DOM → ask AI → execute fix → retry.
- * Uses llama-3.3-70b-versatile for complex reasoning.
+ * When a page action fails, capture DOM → ask Groq → execute fix → retry.
+ * Used for validation error recovery and form navigation issues.
+ * 
+ * @param {import('playwright').Page} page
+ * @param {object} context - Job object for context
+ * @param {number} maxAttempts - Max heal attempts (default: 3)
+ * @returns {boolean} true if errors were resolved
  */
 export async function healAndRetry(page, context, maxAttempts = 3) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -168,7 +159,7 @@ export async function healAndRetry(page, context, maxAttempts = 3) {
           .join(' | ');
       }).catch(() => '');
 
-      // 2. Get simplified DOM snapshot (inputs + buttons only, truncated)
+      // 2. Get simplified DOM snapshot (inputs + buttons only)
       const domSnapshot = await page.evaluate(() => {
         const fields = [];
         document.querySelectorAll('input:not([type=hidden]),select,textarea,button').forEach(el => {
@@ -188,7 +179,7 @@ export async function healAndRetry(page, context, maxAttempts = 3) {
         return fields.slice(0, 40);
       }).catch(() => []);
 
-      // 3. Ask AI what to do
+      // 3. Ask Groq what to do
       const healPrompt = `You are controlling a Playwright browser applying to a job.
 Current URL: ${url.substring(0, 120)}
 Visible errors: ${visibleErrors || 'none'}
@@ -256,11 +247,11 @@ Rules:
 
       if (newErrors === 0) {
         console.log(`  ✅ Heal attempt ${attempt} cleared errors!`);
-        return true;  // caller should retry the submit
+        return true;
       }
     } catch (healErr) {
       console.log(`  ⚠️ Heal attempt ${attempt} error: ${healErr.message}`);
     }
   }
-  return false; // exhausted all attempts
+  return false;
 }

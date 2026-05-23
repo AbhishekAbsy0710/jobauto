@@ -3,15 +3,19 @@
  * 
  * Verifies whether a job application was actually submitted successfully.
  * Checks for: success signals, error signals, captchas, spam blocks,
- * application rate limits, and URL changes.
+ * application rate limits, URL changes, and platform-specific patterns.
+ * 
+ * Platform-specific success detection:
+ *   - SmartRecruiters oneclick-ui (submitButtonGone OR thank-you text)
+ *   - Lever SPA (URL doesn't change, checks text + button gone)
+ *   - Ashby (submitButtonGone)
  * 
  * Exports:
- *   - verifySubmission(page, preSubmitUrl, job) → VerificationResult
+ *   - verifySubmission(page, preSubmitUrl, job, callGroqFn) → VerificationResult
  */
 
 import { writeFileSync } from 'fs';
-import { healAndRetry } from './llm-client.js';
-import { SUBMIT_SELECTORS } from './form-submitter.js';
+import { SUBMIT_SELECTORS } from './constants.js';
 
 /**
  * @typedef {object} VerificationResult
@@ -28,9 +32,11 @@ import { SUBMIT_SELECTORS } from './form-submitter.js';
  * @param {import('playwright').Page} page
  * @param {string} preSubmitUrl - URL before submit was clicked
  * @param {object} job - Job object
+ * @param {Function} callGroqFn - callGroq function for LLM fallback
+ * @param {Function} healAndRetryFn - healAndRetry function for self-healing
  * @returns {VerificationResult}
  */
-export async function verifySubmission(page, preSubmitUrl, job) {
+export async function verifySubmission(page, preSubmitUrl, job, callGroqFn, healAndRetryFn) {
   await page.waitForTimeout(5000);
   const url = page.url().toLowerCase();
   const urlChanged = url !== preSubmitUrl.toLowerCase();
@@ -43,7 +49,7 @@ export async function verifySubmission(page, preSubmitUrl, job) {
   // Save debug artifacts
   const html = await page.content();
   writeFileSync('debug_post_submit.html', html);
-  await page.screenshot({ path: 'debug_post_submit.png', fullPage: true });
+  await page.screenshot({ path: 'debug_post_submit.png', fullPage: true }).catch(() => {});
 
   // ── Application Rate Limit Detection ──────────────────────────────────────
   if (postSubmitLower.includes('application limits') || 
@@ -88,7 +94,7 @@ export async function verifySubmission(page, preSubmitUrl, job) {
       postSubmitLower.includes('robot') || 
       postSubmitLower.includes('automated submission')) {
     console.log('  🚨 Bot/spam block detected — invoking self-healing agent...');
-    const healed = await healAndRetry(page, job);
+    const healed = healAndRetryFn ? await healAndRetryFn(page, job) : false;
     if (!healed) {
       return {
         success: false,
@@ -175,12 +181,12 @@ export async function verifySubmission(page, preSubmitUrl, job) {
   }
 
   // Self-heal validation errors
-  if (hasErrors) {
+  if (hasErrors && healAndRetryFn) {
     const html2 = await page.content();
     writeFileSync('datadog_error.html', html2);
-    await page.screenshot({ path: 'datadog_error_screenshot.png', fullPage: true });
+    await page.screenshot({ path: 'datadog_error_screenshot.png', fullPage: true }).catch(() => {});
     console.log('  🔧 Validation errors detected — invoking self-healing agent...');
-    const healed = await healAndRetry(page, job);
+    const healed = await healAndRetryFn(page, job);
     if (healed) {
       hasErrors = false;
       for (const sel of errorSelectors) {
@@ -205,6 +211,8 @@ export async function verifySubmission(page, preSubmitUrl, job) {
   // ── Platform-Specific Success Checks ──────────────────────────────────────
   const isLever = url.includes('jobs.lever.co') || url.includes('lever.co');
   const isAshby = url.includes('ashbyhq.com') || url.includes('jobs.ashby');
+  const isSR = url.includes('smartrecruiters.com');
+
   const leverSuccess = isLever && !hasErrors && (
     postSubmitLower.includes('application has been submitted') ||
     postSubmitLower.includes('your application was submitted') ||
@@ -215,12 +223,66 @@ export async function verifySubmission(page, preSubmitUrl, job) {
   );
   const ashbySuccess = isAshby && !hasErrors && submitButtonGone;
 
+  // SR oneclick-ui: submit stays on same URL (case may change), may show thank-you or the form just closes
+  const srSuccess = isSR && !hasErrors && (
+    isSuccessText ||
+    postSubmitLower.includes('thank you for your interest') ||
+    postSubmitLower.includes('your application has been sent') ||
+    postSubmitLower.includes('application submitted') ||
+    postSubmitLower.includes('we received your application') ||
+    submitButtonGone
+  );
+
   // Final verdict
-  const isSuccess = !hasErrors && (isSuccessUrl || isSuccessText || (urlChanged && submitButtonGone) || leverSuccess || ashbySuccess);
+  const isSuccess = !hasErrors && (isSuccessUrl || isSuccessText || (urlChanged && submitButtonGone) || leverSuccess || ashbySuccess || srSuccess);
 
   if (isSuccess) {
     console.log('  ✅ Application verified successful!');
     if (urlChanged) console.log(`  📍 Redirected: ${preSubmitUrl.substring(0,50)} → ${url.substring(0,50)}`);
+  }
+
+  // ── LLM Fallback Verification ─────────────────────────────────────────────
+  // If no definitive result, ask an LLM to evaluate the page
+  if (!isSuccess && !hasErrors && callGroqFn) {
+    console.log('  🔧 No success signal detected — asking agent to evaluate page state...');
+    // Strip <noscript> content — it always says "JavaScript is disabled" and confuses the LLM
+    const rawPageText = await page.textContent('body').catch(() => '');
+    const pageText = rawPageText.replace(/JavaScript is (disabled|not available|not enabled)[^.]*\.?/gi, '').trim();
+    const currentUrl = page.url();
+    const agentRaw = await callGroqFn(
+      'You are verifying if a job application was successfully submitted. Ignore any mentions of JavaScript being disabled — that is from a <noscript> tag and is irrelevant. Focus on whether the form was submitted. Return only valid JSON.',
+      `URL: ${currentUrl.substring(0, 120)}\nPage text: ${pageText.substring(0, 800)}\n\nDid the application submit successfully? If the page shows the job listing or application form without errors, or any thank-you/confirmation message, that means success. Return JSON: {"success": true/false, "reason": "brief explanation", "action": "optional next action if not success e.g. click submit button selector"}`,
+      'llama-3.3-70b-versatile'
+    );
+    let agentVerdict = { success: false, reason: 'No response' };
+    try { agentVerdict = JSON.parse(agentRaw); } catch {}
+    console.log(`  🤖 Agent verdict: ${JSON.stringify(agentVerdict)}`);
+
+    if (agentVerdict.success) {
+      return {
+        success: true,
+        hasCaptcha: false,
+        needsEmailVerification,
+        hasErrors: false,
+        failureReason: '',
+        agentVerified: true,
+      };
+    } else if (agentVerdict.action) {
+      console.log(`  🤖 Agent suggests: ${agentVerdict.action}`);
+      try { await page.locator(agentVerdict.action).first().click({ timeout: 5000, force: true }); } catch {}
+      await page.waitForTimeout(3000);
+      const retryText = await page.textContent('body').catch(() => '').then(t => t.toLowerCase());
+      const retrySuccess = retryText.includes('thank you') || retryText.includes('application received') || retryText.includes('successfully submitted') || retryText.includes('applied successfully');
+      if (retrySuccess) {
+        return {
+          success: true,
+          hasCaptcha: false,
+          needsEmailVerification,
+          hasErrors: false,
+          failureReason: '',
+        };
+      }
+    }
   }
 
   return {
