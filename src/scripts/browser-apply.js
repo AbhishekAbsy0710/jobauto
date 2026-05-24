@@ -73,6 +73,14 @@ const RESUME_PATH = RESUME_PATH_CONST;
 // AI FORM FILLER
 // ============================================
 async function fillDynamicFields(page) {
+  // Diagnostic: count all inputs on page before filtering
+  const inputDiag = await page.evaluate(() => {
+    const all = document.querySelectorAll('input, select, textarea');
+    const visible = Array.from(all).filter(el => el.offsetParent !== null && !el.closest('[style*="display: none"]'));
+    return { total: all.length, visible: visible.length, types: visible.slice(0, 10).map(e => `${e.tagName.toLowerCase()}[name=${e.name||e.id||'?'}][type=${e.type||'?'}]`) };
+  }).catch(() => ({ total: 0, visible: 0, types: [] }));
+  console.log(`  🔍 Field scan: ${inputDiag.total} total inputs, ${inputDiag.visible} visible: ${inputDiag.types.join(', ')}`);
+
   const fields = await page.evaluate(() => {
     const results = [];
 
@@ -204,7 +212,10 @@ async function fillDynamicFields(page) {
     return true;
   });
 
-  if (cleanedFields.length === 0) return;
+  if (cleanedFields.length === 0) {
+    console.log(`  🔍 fillDynamicFields: 0 fields after filtering (raw: ${fields.length})`);
+    return;
+  }
 
   // Group radio buttons
   const grouped = {};
@@ -691,6 +702,28 @@ async function fillBaseFields(page, resumePath) {
 
   // Email & Phone — expanded for SmartRecruiters, iCIMS, BambooHR
   await fillField(page, '#email, input[name="email"], input[type="email"], input[name="_systemfield_email"], input[id*="email"], input[name="candidate[email]"]', PROFILE.email);
+
+  // ── Confirm Email: SR and other ATS forms have a second email field ──
+  // fillField only fills the first match, so we explicitly find ALL email-like
+  // inputs and fill any that are still empty (handles "Confirm your email").
+  try {
+    const allEmailInputs = await page.$$('input[type="email"], input[id*="email"], input[name*="email"], input[placeholder*="email" i], input[aria-label*="email" i], input[id*="Email"], input[name*="Email"]');
+    for (const emailInput of allEmailInputs) {
+      try {
+        if (!await emailInput.isVisible().catch(() => false)) continue;
+        const currentVal = await emailInput.inputValue().catch(() => '');
+        if (currentVal && currentVal.includes('@')) continue; // Already filled
+        await emailInput.scrollIntoViewIfNeeded().catch(() => {});
+        await emailInput.focus().catch(() => {});
+        await emailInput.click({ clickCount: 3 }).catch(() => {});
+        await page.waitForTimeout(50);
+        await page.keyboard.type(PROFILE.email, { delay: 10 });
+        await page.waitForTimeout(80);
+        console.log(`  📧 Filled confirm email field`);
+      } catch {}
+    }
+  } catch {}
+
   await fillField(page, '#phone, input[name="phone"], input[type="tel"], input[name="_systemfield_phone"], input[id*="phone"], input[name="candidate[phone]"], input[placeholder*="phone" i]', PROFILE.phone);
 
   // Address / Location — SmartRecruiters, iCIMS, BambooHR
@@ -759,10 +792,27 @@ async function fillBaseFields(page, resumePath) {
     }
   } catch {}
   // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Post-fill diagnostic: verify key fields actually have values ──
+  try {
+    const filledCheck = await page.evaluate(() => {
+      const checks = {};
+      const nameEl = document.querySelector('input[name="_systemfield_name"], input[name="first_name"], #first_name, input[name*="first"]');
+      const emailEl = document.querySelector('input[type="email"], input[name="email"], input[name="_systemfield_email"]');
+      const phoneEl = document.querySelector('input[type="tel"], input[name="phone"]');
+      if (nameEl) checks.name = nameEl.value || '(empty)';
+      if (emailEl) checks.email = emailEl.value || '(empty)';
+      if (phoneEl) checks.phone = phoneEl.value || '(empty)';
+      checks.totalInputs = document.querySelectorAll('input:not([type="hidden"])').length;
+      return checks;
+    });
+    console.log(`  📝 Post-fill check: name=${filledCheck.name || 'N/A'}, email=${filledCheck.email || 'N/A'}, phone=${filledCheck.phone || 'N/A'} (${filledCheck.totalInputs} inputs)`);
+  } catch {}
 }
 
 
 async function fillField(page, selector, value) {
+  if (!value) return false; // skip undefined/empty values
   try {
     const field = await page.$(selector);
     if (field && await field.isVisible()) {
@@ -780,6 +830,13 @@ async function fillField(page, selector, value) {
       if (!isFocused3) await field.focus().catch(() => {});
       await page.keyboard.type(value, { delay: 10 });
       await page.waitForTimeout(80);
+      // Verify the value was retained (React may have cleared it)
+      const retainedValue = await field.inputValue().catch(() => '');
+      if (!retainedValue) {
+        // Fallback: use Playwright's fill() which dispatches all events
+        await field.fill(value).catch(() => {});
+        console.log(`  ⚠️ fillField: keyboard.type value lost, used fill() fallback for ${selector.substring(0, 40)}`);
+      }
       return true;
     }
   } catch {}
@@ -1377,6 +1434,18 @@ async function main() {
             document.body.style.overflow = 'auto';
           }).catch(() => {});
           await page.waitForTimeout(1000);
+        }
+
+        // ── Wait for React/SPA form to hydrate ──
+        // React SPAs (Ashby, WorkOS) load HTML shell first, then hydrate form
+        // fields async. Without waiting, fillBaseFields finds zero inputs.
+        try {
+          await page.waitForFunction(() => {
+            const inputs = document.querySelectorAll('input:not([type="hidden"]), textarea, select');
+            return Array.from(inputs).some(el => el.offsetParent !== null);
+          }, { timeout: 10000 });
+        } catch {
+          console.log('  ⏳ No visible form inputs found after 10s — filling anyway');
         }
 
         // Re-fill fields on every new step (each step = new DOM)
