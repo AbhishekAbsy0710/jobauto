@@ -80,7 +80,7 @@ async function fillDynamicFields(page) {
     const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), select, textarea'));
     for (const el of inputs) {
       const name = (el.name || el.id || '').toLowerCase();
-      if (['first_name', 'last_name', 'fname', 'lname', 'name'].includes(name) || name.includes('email') || name.includes('phone') || el.type === 'file' || el.type === 'submit') continue;
+      if (['first_name', 'last_name', 'fname', 'lname', 'name'].includes(name) || ['email', 'e-mail'].includes(name) || name.includes('phone') || el.type === 'file' || el.type === 'submit') continue;
       // Skip IntlTelInput phone country-code picker (iti-*) — it's handled by fillBaseFields
       if (name.startsWith('iti-') || name.includes('__search-input') || name.includes('search-input')) continue;
       // Skip OneTrust cookie consent fields — these are NOT application form fields
@@ -1789,7 +1789,7 @@ async function main() {
         // ── Dashboard Agent: Record success (Supabase insert + status update) ──
         await recordSuccess(job, supabase, {
           screenshotUrl,
-          tailoredResumeUrl: tailoredInfo.publicUrl,
+          tailoredResumeUrl: job.tailoredPublicUrl,
           tailoredChanges,
           activeResumePath,
         });
@@ -1858,7 +1858,7 @@ async function main() {
       // ── Dashboard Agent: Record failure (screenshot upload + DB insert + status revert) ──
       await recordFailure(job, supabase, {
         errorScreenshotPath: job.errorScreenshotPath,
-        tailoredResumeUrl: tailoredInfo?.publicUrl,
+        tailoredResumeUrl: job.tailoredPublicUrl,
       });
     }
 
