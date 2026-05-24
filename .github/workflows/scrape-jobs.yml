@@ -2,8 +2,10 @@ name: Scrape Jobs
 
 on:
   schedule:
-    # Run at 5:45 AM Berlin time (UTC+2) every day — 15 min before auto-apply
-    - cron: '45 3 * * *'
+    # Two daily runs — 45 min before each auto-apply run
+    # Shifted OFF the top of the hour to avoid GitHub cron congestion
+    - cron: '32 5 * * *'       # ~7:32 AM Berlin (before morning apply)
+    - cron: '2 14 * * *'       # ~4:02 PM Berlin (before afternoon apply)
   workflow_dispatch:  # allow manual trigger
 
 jobs:
