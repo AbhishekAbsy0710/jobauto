@@ -35,14 +35,24 @@ export async function getJobQueue(supabase, opts = {}) {
       .from('jobs')
       .select('*, evaluations(id, letter_grade, weighted_score)')
       .eq('id', testJobId);
+  } else if (isLocal) {
+    // LOCAL MODE: pull BOTH auto_queue AND manual_queue (home IP isn't blocked)
+    console.log(`  🏠 LOCAL_RUN mode — pulling auto_queue + manual_queue (home IP not blocked)`);
+    query = supabase
+      .from('jobs')
+      .select('*, evaluations(id, letter_grade, weighted_score)')
+      .in('status', ['auto_queue', 'manual_queue'])
+      .gte('scraped_at', thirtyDaysAgo)
+      .order('scraped_at', { ascending: false })
+      .limit(500);
   } else {
+    // GHA MODE: only auto_queue, exclude Greenhouse (Cloudflare blocks datacenter IPs)
     query = supabase
       .from('jobs')
       .select('*, evaluations(id, letter_grade, weighted_score)')
       .eq('status', 'auto_queue')
       .gte('scraped_at', thirtyDaysAgo);
-    // On GHA exclude Greenhouse (Cloudflare blocks datacenter IPs)
-    if (!isLocal) query = query.not('apply_link', 'ilike', '%greenhouse%');
+    query = query.not('apply_link', 'ilike', '%greenhouse%');
     query = query.order('scraped_at', { ascending: false }).limit(200);
   }
 
@@ -59,7 +69,7 @@ export async function getJobQueue(supabase, opts = {}) {
     return { ...j, eval_id: e?.id, grade: e?.letter_grade, score: e?.weighted_score || 0 };
   }).sort((a, b) => (b.score || 0) - (a.score || 0)); // best-scored first
 
-  // Move Greenhouse jobs to manual_queue on GHA
+  // On GHA: move Greenhouse jobs to manual_queue
   if (!isLocal) {
     const greenhouseJobs = jobs.filter(j => (j.apply_link || '').includes('greenhouse'));
     if (greenhouseJobs.length > 0) {
@@ -69,8 +79,6 @@ export async function getJobQueue(supabase, opts = {}) {
       }
     }
     jobs = jobs.filter(j => !(j.apply_link || '').includes('greenhouse'));
-  } else {
-    console.log(`  🏠 LOCAL_RUN mode — Greenhouse jobs INCLUDED (home IP not blocked)`);
   }
 
   // Pre-filter: cap per company so one company can't dominate
