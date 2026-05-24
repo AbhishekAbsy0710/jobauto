@@ -164,23 +164,24 @@ function isDealBreaker(job, dealBreakers = []) {
 
 // ── Upsert job + optional evaluation into Supabase ───────────────────────────
 async function upsertJob(job, evaluation) {
-  // EXCEPTION: Some ATS platforms always trigger hCaptcha on form submit,
-  // or are blocked by Cloudflare Bot Management on GHA datacenter IPs.
+  // EXCEPTION: Some ATS platforms block headless Chrome on GHA datacenter IPs.
   // Route them to manual_queue at scrape time to avoid wasting browser time.
   //
-  //   - greenhouse: job-boards.greenhouse.io is behind Cloudflare — GHA IPs blocked 100%
+  //   - greenhouse: job-boards.greenhouse.io behind Cloudflare — GHA IPs blocked
   //   - ashby: all companies trigger hCaptcha on form submit
-  //   - lever: Spotify confirmed; likely all Lever companies trigger hCaptcha
-  const CAPTCHA_PLATFORMS = ['ashby', 'lever', 'greenhouse'];
+  //   - lever: all companies trigger hCaptcha on form submit
+  //   - smartrecruiters: oneclick-ui SPA blocks headless Chrome — blank page, 0 inputs
+  const BLOCKED_PLATFORMS = ['ashby', 'lever', 'greenhouse', 'smartrecruiters'];
   // Companies whose apply pages block GHA IPs (Cloudflare bot protection on custom career sites)
   const PAGE_LOAD_BLOCKED_COMPANIES = ['bitpanda', 'showpad', 'cockroach labs', 'cockroachlabs'];
   const platformLower = (job.platform || '').toLowerCase();
   const companyLower = (job.company || '').toLowerCase();
-  // Also check apply_link directly — some jobs have platform='unknown' but link to greenhouse
+  // Also check apply_link directly — some jobs have platform='unknown' but link to blocked ATS
   const applyLinkLower = (job.apply_link || '').toLowerCase();
   const isGreenhouseLink = applyLinkLower.includes('greenhouse.io') || applyLinkLower.includes('job-boards.greenhouse');
-  const status = CAPTCHA_PLATFORMS.includes(platformLower) || PAGE_LOAD_BLOCKED_COMPANIES.some(c => companyLower.includes(c)) || isGreenhouseLink
-    ? 'manual_queue'                          // Cloudflare/hCaptcha blocked → manual
+  const isSRLink = applyLinkLower.includes('smartrecruiters.com');
+  const status = BLOCKED_PLATFORMS.includes(platformLower) || PAGE_LOAD_BLOCKED_COMPANIES.some(c => companyLower.includes(c)) || isGreenhouseLink || isSRLink
+    ? 'manual_queue'                          // Headless-blocked → manual
     : (evaluation?.action || 'new');          // No evaluation (rate-limited) → stay 'new' until evaluated
 
   // Only include columns that exist in the Supabase jobs table schema:

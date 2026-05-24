@@ -28,16 +28,26 @@ export async function scrapeArbeitnow(keywords = [], locations = []) {
 
       if (jobs.length === 0) break;
 
+      // Broaden keywords: "DevOps Engineer" → ["devops", "engineer"] + common tech terms
+      const TECH_TERMS = ['devops', 'cloud', 'fullstack', 'full-stack', 'full stack', 'backend', 'data engineer',
+        'sre', 'platform engineer', 'infrastructure', 'ml engineer', 'ai engineer', 'machine learning',
+        'site reliability', 'kubernetes', 'terraform', 'aws', 'azure', 'gcp', 'software engineer'];
+      const expandedKeywords = new Set(TECH_TERMS);
+      for (const kw of keywords) {
+        expandedKeywords.add(kw.toLowerCase());
+        for (const word of kw.toLowerCase().split(/\s+/)) {
+          if (word.length > 2) expandedKeywords.add(word);
+        }
+      }
+
       for (const job of jobs) {
         // Filter by keywords and location
         const titleLower = (job.title || '').toLowerCase();
-        const descLower = (job.description || '').toLowerCase();
         const locationLower = (job.location || '').toLowerCase();
         const tagsLower = (job.tags || []).map(t => t.toLowerCase());
 
-        const matchesKeyword = keywords.length === 0 || keywords.some(kw => {
-          const kwLower = kw.toLowerCase();
-          return titleLower.includes(kwLower) || descLower.includes(kwLower) || tagsLower.some(t => t.includes(kwLower));
+        const matchesKeyword = [...expandedKeywords].some(kw => {
+          return titleLower.includes(kw) || tagsLower.some(t => t.includes(kw));
         });
 
         const matchesLocation = locations.length === 0 || locations.some(loc => {

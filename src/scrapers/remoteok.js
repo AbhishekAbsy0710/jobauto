@@ -25,6 +25,19 @@ export async function scrapeRemoteOK(keywords = []) {
     // First element is metadata, skip it
     const jobs = Array.isArray(data) ? data.slice(1) : [];
 
+    // Broaden keywords: split "DevOps Engineer" into ["devops", "engineer"] + add common tech terms
+    const TECH_TERMS = ['devops', 'cloud', 'fullstack', 'full-stack', 'full stack', 'backend', 'data engineer',
+      'sre', 'platform engineer', 'infrastructure', 'ml engineer', 'ai engineer', 'machine learning',
+      'site reliability', 'kubernetes', 'terraform', 'aws', 'azure', 'gcp'];
+    const expandedKeywords = new Set(TECH_TERMS);
+    for (const kw of keywords) {
+      expandedKeywords.add(kw.toLowerCase());
+      // Also add individual words (2+ chars) from multi-word keywords
+      for (const word of kw.toLowerCase().split(/\s+/)) {
+        if (word.length > 2) expandedKeywords.add(word);
+      }
+    }
+
     for (const job of jobs) {
       if (!job.position) continue;
 
@@ -32,9 +45,8 @@ export async function scrapeRemoteOK(keywords = []) {
       const descLower = (job.description || '').toLowerCase();
       const tagsLower = (job.tags || []).map(t => t.toLowerCase());
 
-      const matchesKeyword = keywords.length === 0 || keywords.some(kw => {
-        const kwLower = kw.toLowerCase();
-        return titleLower.includes(kwLower) || descLower.includes(kwLower) || tagsLower.some(t => t.includes(kwLower));
+      const matchesKeyword = [...expandedKeywords].some(kw => {
+        return titleLower.includes(kw) || tagsLower.some(t => t.includes(kw));
       });
 
       if (matchesKeyword) {
