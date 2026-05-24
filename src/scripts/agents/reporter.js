@@ -15,17 +15,28 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { basename } from 'path';
-import { DISCORD_WEBHOOK, RESUME_PATH } from './constants.js';
+import { getDiscordWebhook, RESUME_PATH } from './constants.js';
 
 // ── Raw Discord Embed ──────────────────────────────────────────────────────────
 export async function sendDiscordEmbed(embed) {
-  if (!DISCORD_WEBHOOK) return;
+  const webhook = getDiscordWebhook();
+  if (!webhook) {
+    console.log('  ⚠️ Discord webhook not configured — skipping notification');
+    return;
+  }
   try {
-    await fetch(DISCORD_WEBHOOK, {
+    const res = await fetch(webhook, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: 'JobAuto', embeds: [embed] })
     });
-  } catch {}
+    if (res.ok) {
+      console.log(`  📣 Discord notification sent: ${embed.title}`);
+    } else {
+      console.log(`  ⚠️ Discord webhook returned ${res.status}`);
+    }
+  } catch (err) {
+    console.log(`  ⚠️ Discord webhook error: ${err.message}`);
+  }
 }
 
 // ── Report Successful Application ──────────────────────────────────────────────

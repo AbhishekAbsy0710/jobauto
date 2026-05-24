@@ -207,5 +207,7 @@ export const MAX_PER_COMPANY = 2;
 export const MAX_STEPS = 10;
 export const PAGE_LOAD_BLOCKED = ['adyen', 'cloudflare', 'stripe', 'planetscale', 'clickhouse'];
 
-// ── Discord ────────────────────────────────────────────────────────────────────
-export const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || '';
+// ── Discord (lazy — must read at call-time because .env loads after ESM imports) ──
+export function getDiscordWebhook() { return process.env.DISCORD_WEBHOOK_URL || ''; }
+// Deprecated: do NOT use DISCORD_WEBHOOK (empty at import-time in local runs)
+export const DISCORD_WEBHOOK = '';
