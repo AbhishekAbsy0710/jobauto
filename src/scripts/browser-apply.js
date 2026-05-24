@@ -47,7 +47,6 @@ try {
 // ── Agent Imports ──────────────────────────────────────────────────────────────
 import {
   PROFILE, PROFILE_YAML, RESUME_PATH as RESUME_PATH_CONST,
-  STATIC_ANSWERS, tryStaticAnswer,
   SUBMIT_SELECTORS, NEXT_SELECTORS, FINAL_PAGE_SIGNALS,
   MAX_JOBS_PER_RUN, MAX_PREFILTER_PER_COMPANY, MAX_PER_COMPANY, MAX_STEPS,
   DISCORD_WEBHOOK, TARGET_KEYWORDS, SKIP_KEYWORDS, PAGE_LOAD_BLOCKED,
@@ -214,173 +213,42 @@ async function fillDynamicFields(page) {
     if (f.options.length > 0) grouped[f.name].options.push(...f.options);
   }
 
-
   const questions = Object.values(grouped);
   if (questions.length === 0) return;
 
-  // --- Static pre-fill: answer common fields without AI ---
-  const staticAnswers = [];
-  const aiQuestions = [];
-  for (const q of questions) {
-    const staticMatch = tryStaticAnswer(q.label);
-    if (staticMatch) {
-      staticAnswers.push({ ...q, staticValue: staticMatch.value, staticType: staticMatch.type });
-    } else {
-      aiQuestions.push(q);
-    }
-  }
+  // All fields go through the LLM — no static regex shortcuts.
+  // The LLM has the full candidate profile and can handle any field variation
+  // (email, confirm email, phone, LinkedIn, salary, etc.) in one batch call.
+  const aiQuestions = questions;
 
-  // Fill static answers immediately (no Groq call)
-  // First: blur any focused element (e.g. file upload) to prevent keyboard interference
+  // Blur any focused element (e.g. file upload) to prevent keyboard interference
   await page.keyboard.press('Escape').catch(() => {});
   await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); }).catch(() => {});
   await page.waitForTimeout(200);
 
-  for (const q of staticAnswers) {
-    try {
-      const el = await page.$(`[name="${q.name}"], [id="${q.name}"]`);
-      if (el) {
-        const tag = (await el.evaluate(e => e.tagName)).toLowerCase();
-        const cls = (await el.getAttribute('class') || '').toLowerCase();
-        const isReactSelectInput = cls.includes('select__input') || cls.includes('select-field__input') || q.isCombobox || q.staticType === 'reactselect';
+  console.log(`  🤖 AI filling ${aiQuestions.length} fields...`);
 
-        if (tag === 'select') {
-          await el.selectOption({ label: q.staticValue }).catch(() => el.selectOption(q.staticValue).catch(() => {}));
-        } else if (isReactSelectInput) {
-          // React Select: must use Playwright pointer events, not el.fill()
-          await fillReactSelect(page, el, q.staticValue);
-        } else {
-          // Keyboard simulation — works on ALL React variants (Ashby, Greenhouse, Lever)
-          // Explicitly focus the element before typing to avoid cross-field interference
-          await el.scrollIntoViewIfNeeded().catch(() => {});
-          await page.waitForTimeout(100); // Let page settle before interacting
-          await el.focus().catch(() => {});
-          await el.click({ clickCount: 3 }).catch(() => {});  // select all + set focus
-          await page.waitForTimeout(100);
-          // Verify focus is on this element before typing
-          const isFocusedStatic = await page.evaluate((el) => document.activeElement === el, el).catch(() => false);
-          if (!isFocusedStatic) {
-            await el.click({ force: true }).catch(() => {});
-            await page.waitForTimeout(100);
-          }
-          await page.keyboard.type(q.staticValue, { delay: 10 });
-          // Wait for typeahead/autocomplete dropdown — Ashby can take up to 900ms
-          await page.waitForTimeout(900);
-          
-          // Multi-strategy suggestion picker (CSS-class-independent):
-          // Strategy 1: ARIA role="option" — works on all ATS including future Ashby versions
-          // Strategy 2: Ashby obfuscated class (backup for current version)
-          // Strategy 3: listbox li items
-          // Strategy 4: data-value attribute (some ATSs use this)
-          const SUGGESTION_SELECTORS = [
-            '[role="option"]',
-            '[role="listbox"] li',
-            'li[data-value]',
-            'div[class*="_option_"]:not([class*="_container_"]):not([class*="_yesno_"])',
-            '.autocomplete-suggestion',
-            'ul.suggestions li',
-          ];
-          
-          let clicked = false;
-          for (const sel of SUGGESTION_SELECTORS) {
-            if (clicked) break;
-            try {
-              const allOptions = await page.$$(sel);
-              const visibleOptions = [];
-              for (const opt of allOptions) {
-                if (await opt.isVisible().catch(() => false)) visibleOptions.push(opt);
-              }
-              if (visibleOptions.length === 0) continue;
-              
-              // Prefer an option whose text starts with the typed value (e.g. "Germany")
-              let best = null;
-              const valLower = q.staticValue.toLowerCase();
-              for (const opt of visibleOptions) {
-                const txt = (await opt.textContent().catch(() => '')).trim().toLowerCase();
-                if (txt.startsWith(valLower) || txt === valLower) { best = opt; break; }
-              }
-              // Fallback: just pick the first visible option
-              if (!best && visibleOptions.length > 0) best = visibleOptions[0];
-              
-              if (best) {
-                await best.scrollIntoViewIfNeeded().catch(() => {});
-                await best.click({ force: true }).catch(() => {});
-                await page.waitForTimeout(300);
-                clicked = true;
-              }
-            } catch {}
-          }
-          
-          if (!clicked) {
-            // No dropdown appeared — press Tab to confirm the typed value
-            await page.keyboard.press('Tab');
-            await page.waitForTimeout(150);
-          }
-          // Post-fill verification: if still empty, try el.fill() as fallback
-          const verifyVal = await el.inputValue().catch(() => '');
-          if (!verifyVal.trim()) {
-            await el.fill(q.staticValue).catch(() => {});
-            await page.waitForTimeout(200);
-          }
-        }
-        console.log(`    ↳ [cache] Filled ${q.name} -> ${q.staticValue}`);
-      }
-    } catch {}
-  }
-
-
-  // Post-static re-verify: React re-renders can clear a field when the next field is filled.
-  // Run ALWAYS before AI fills AND again after AI fills.
-  async function reVerifyStaticFields() {
-    await page.waitForTimeout(300);
-    for (const q of staticAnswers) {
-      try {
-        if (q.staticType === 'text' || !q.staticType) {
-          const el = await page.$(`[name="${q.name}"], [id="${q.name}"]`);
-          if (el) {
-            const currentVal = await el.inputValue().catch(() => '');
-            if (!currentVal.trim() && q.staticValue) {
-              await el.scrollIntoViewIfNeeded().catch(() => {});
-              await el.focus().catch(() => {});
-              await el.click({ clickCount: 3 }).catch(() => {});
-              await page.waitForTimeout(80);
-              await page.keyboard.type(q.staticValue, { delay: 10 });
-              await page.waitForTimeout(300);
-              const afterVal = await el.inputValue().catch(() => '');
-              if (!afterVal.trim()) {
-                await el.fill(q.staticValue).catch(() => {});
-              }
-              console.log(`    ↳ [re-fill] Re-filled ${q.name} -> ${q.staticValue}`);
-            }
-          }
-        }
-      } catch {}
-    }
-  }
-
-  // Always run pre-AI re-verify pass
-  await reVerifyStaticFields();
-
-  if (aiQuestions.length === 0) {
-    console.log(`  ✅ All ${staticAnswers.length} fields filled from cache (0 AI tokens used)`);
-    return;
-  }
-
-  console.log(`  🤖 AI reading ${aiQuestions.length} custom fields (${staticAnswers.length} pre-filled from cache)...`);
-
-const sysPrompt = `You are an AI filling out a job application. Use the candidate's profile to answer the custom questions.
+const sysPrompt = `You are an AI filling out a job application. Use the candidate's profile to answer ALL form fields.
 PROFILE CONTEXT:
 ${PROFILE_YAML}
+Candidate Email: ${PROFILE.email}
+Candidate Phone: ${PROFILE.phone}
 Candidate LinkedIn: ${PROFILE.linkedin}
 Candidate GitHub: ${PROFILE.github}
-Candidate Location: Munich, Germany (EU Blue Card holder, no visa sponsorship needed for EU)
+Candidate Location: ${PROFILE.city}, ${PROFILE.country} (EU Blue Card holder, no visa sponsorship needed for EU)
 
 Return JSON strictly in this format:
 {"answers": [{"name": "input_name_attribute", "value": "your_answer", "type": "text|select|radio|checkbox|reactselect"}]}
 
 CRITICAL RULES:
 - NEVER leave a required field blank. NEVER return an empty string "" as value.
-- For any 'text' field with label containing "country" or "residence": ALWAYS return "Germany".
+- For EMAIL fields: ALWAYS use "${PROFILE.email}". If field asks to CONFIRM or RE-ENTER email, use the SAME email: "${PROFILE.email}".
+- For PHONE fields: use "${PROFILE.phone}".
+- For NAME fields: First="${PROFILE.firstName}", Last="${PROFILE.lastName}".
+- For any 'text' field with label containing "country" or "residence": ALWAYS return "${PROFILE.country}".
+- For any 'text' field with label containing "city": ALWAYS return "${PROFILE.city}".
+- For LinkedIn URL: ALWAYS return "${PROFILE.linkedin}".
+- For GitHub/Portfolio URL: ALWAYS return "${PROFILE.github}".
 - For 'reactselect' or 'select' type: your 'value' MUST be EXACTLY ONE of the option labels listed in the field's 'options' array. Copy it exactly, character for character.
 - For multi-select fields (label contains "location(s)", "select all", "languages you speak"): return comma-separated values BUT limit to AT MOST 2-3 relevant choices. For LOCATION multi-select: prefer "Remote" if listed. Add at most 1 more specific city/country option relevant to Germany.
 - For 'radio'/'checkbox': your 'value' must exactly match the option's 'value' field (NOT the label).
@@ -390,12 +258,11 @@ CRITICAL RULES:
 - Disability/Veteran/Gender: Always "Decline to answer", "Prefer not to say", or "No".
 - Yes/No questions: answer "Yes" or "No" exactly unless options are different.
 - Certification/consent questions ("I certify...", "I understand...", "I agree..."): answer "Yes".
-- LinkedIn/GitHub links: ALWAYS include https://. LinkedIn → ${PROFILE.linkedin}, GitHub → ${PROFILE.github}.
 - Location questions: pick "Remote" if available. Otherwise pick the single option closest to Germany/Munich.
 - "How did you hear": pick "LinkedIn" or the closest match from the options list.
 - DO NOT invent values not in the options list for select/reactselect fields.
-- DO NOT use actual newlines inside JSON strings. Use literal \\n if needed.
-- Escape double quotes inside answer values with \\"`;
+- DO NOT use actual newlines inside JSON strings. Use literal \\\\n if needed.
+- Escape double quotes inside answer values with \\\\"`;
 
   const userPrompt = `Form Fields (for reactselect/select types, 'options' lists the EXACT values you may choose from):\n` + JSON.stringify(aiQuestions, null, 2);
 
@@ -424,9 +291,13 @@ CRITICAL RULES:
     for (const ans of data.answers) {
       if (!ans.value || !ans.value.trim()) {
         const label = qLabelMap[ans.name] || '';
-        if (/country|reside|passport|nation/i.test(label)) { ans.value = 'Germany'; }
-        else if (/github|portfolio/i.test(label)) { ans.value = 'https://github.com/AbhishekAbsy0710'; }
-        else if (/linkedin/i.test(label)) { ans.value = 'https://www.linkedin.com/in/abhishek-raj-pagadala'; }
+        if (/email|e-?mail/i.test(label)) { ans.value = PROFILE.email; }
+        else if (/phone/i.test(label)) { ans.value = PROFILE.phone; }
+        else if (/first.*name/i.test(label)) { ans.value = PROFILE.firstName; }
+        else if (/last.*name/i.test(label)) { ans.value = PROFILE.lastName; }
+        else if (/country|reside|passport|nation/i.test(label)) { ans.value = PROFILE.country; }
+        else if (/github|portfolio/i.test(label)) { ans.value = PROFILE.github; }
+        else if (/linkedin/i.test(label)) { ans.value = PROFILE.linkedin; }
         else if (/twitter|x\.com/i.test(label)) { ans.value = 'https://x.com/AbhishekAbsy'; }
       }
     }
@@ -603,10 +474,6 @@ CRITICAL RULES:
   } catch (e) {
     console.log(`  ⚠️ AI fill error: ${e.message}`);
   }
-
-  // Post-AI re-verify: AI fills may have cleared previously-set static fields
-  // (e.g. filling a textarea causes React to reconcile and blank out an earlier text input)
-  await reVerifyStaticFields();
 }
 
 // dismissCookieBanners imported from ./agents/consent-handler.js
@@ -1842,9 +1709,13 @@ async function main() {
         }
       }
 
-      // Also check for error-like text in page body — only specific ATS error patterns
-      // NOTE: Do NOT check 'this field is required' — it appears in Datadog field descriptions always
-      if (!hasErrors && (postSubmitLower.includes('missing entry for required field') || postSubmitLower.includes('please fill in all required fields') || postSubmitLower.includes('required fields are missing'))) {
+      if (!hasErrors && (
+        postSubmitLower.includes('missing entry for required field') || 
+        postSubmitLower.includes('please fill in all required fields') || 
+        postSubmitLower.includes('required fields are missing') ||
+        postSubmitLower.includes('please provide a valid email') ||
+        postSubmitLower.includes('this field is required')
+      )) {
         console.log(`  ⚠️ Required field validation error detected in page text`);
         hasErrors = true;
       }
@@ -1890,14 +1761,14 @@ async function main() {
         submitButtonGone
       );
       const ashbySuccess = isAshby && !hasErrors && submitButtonGone;
-      // SR oneclick-ui: submit stays on same URL (case may change), may show thank-you or the form just closes
+      // SR oneclick-ui: submit stays on same URL — REQUIRE explicit success text, NOT just submitButtonGone
+      // (SR SPA re-renders cause the button to temporarily vanish during form interaction = false positive)
       const srSuccess = isSR && !hasErrors && (
         isSuccessText ||
         postSubmitLower.includes('thank you for your interest') ||
         postSubmitLower.includes('your application has been sent') ||
         postSubmitLower.includes('application submitted') ||
-        postSubmitLower.includes('we received your application') ||
-        submitButtonGone
+        postSubmitLower.includes('we received your application')
       );
 
       // SUCCESS = explicit signal OR (no errors + URL changed + submit gone) OR platform-specific

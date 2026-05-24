@@ -26,6 +26,7 @@ export const PROFILE = {
   lastName: 'Pagadala',
   fullName: 'Abhishek Raj Pagadala',
   email: process.env.APPLICANT_EMAIL || 'pagadalaabhishek60@gmail.com',
+  confirmEmail: process.env.APPLICANT_EMAIL || 'pagadalaabhishek60@gmail.com',
   phone: process.env.APPLICANT_PHONE || '+49 176 6723 9250',
   linkedin: 'https://www.linkedin.com/in/abhishek-raj-pagadala',
   github: 'https://github.com/AbhishekAbsy0710',
@@ -37,6 +38,8 @@ export const PROFILE = {
 export const STATIC_ANSWERS = [
   // Legal work authorisation MUST come first to prevent country pattern matching "in the country where..."
   { patterns: [/legally auth/i, /authorised.*work/i, /authorized.*work/i], value: 'Yes, no restriction.', type: 'reactselect' },
+  // Confirm email (SmartRecruiters requires this)
+  { patterns: [/confirm.*email/i, /re-?enter.*email/i, /email.*confirm/i, /verify.*email/i], value: 'pagadalaabhishek60@gmail.com', type: 'text' },
   // LinkedIn
   { patterns: [/linkedin/i], value: PROFILE.linkedin, type: 'text' },
   // GitHub

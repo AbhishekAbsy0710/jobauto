@@ -174,7 +174,9 @@ export async function verifySubmission(page, preSubmitUrl, job, callGroqFn, heal
   if (!hasErrors && (
     postSubmitLower.includes('missing entry for required field') || 
     postSubmitLower.includes('please fill in all required fields') || 
-    postSubmitLower.includes('required fields are missing')
+    postSubmitLower.includes('required fields are missing') ||
+    postSubmitLower.includes('please provide a valid email') ||
+    postSubmitLower.includes('this field is required')
   )) {
     console.log(`  ⚠️ Required field validation error detected in page text`);
     hasErrors = true;
@@ -223,14 +225,13 @@ export async function verifySubmission(page, preSubmitUrl, job, callGroqFn, heal
   );
   const ashbySuccess = isAshby && !hasErrors && submitButtonGone;
 
-  // SR oneclick-ui: submit stays on same URL (case may change), may show thank-you or the form just closes
+  // SR oneclick-ui: REQUIRE explicit success text — submitButtonGone alone is a false positive
   const srSuccess = isSR && !hasErrors && (
     isSuccessText ||
     postSubmitLower.includes('thank you for your interest') ||
     postSubmitLower.includes('your application has been sent') ||
     postSubmitLower.includes('application submitted') ||
-    postSubmitLower.includes('we received your application') ||
-    submitButtonGone
+    postSubmitLower.includes('we received your application')
   );
 
   // Final verdict
