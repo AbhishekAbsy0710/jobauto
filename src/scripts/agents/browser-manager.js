@@ -19,10 +19,12 @@ import { chromium } from 'playwright';
  * @returns {import('playwright').Browser}
  */
 export async function createBrowser(opts = {}) {
-  const isHeaded = opts.headed || process.env.HEADED === 'true';
+  const isLocal = process.env.LOCAL_RUN === 'true';
+  const isHeaded = opts.headed || process.env.HEADED === 'true' || isLocal;
+  if (isLocal && isHeaded) console.log('  🖥️  Headed mode (LOCAL_RUN) — browser window will be visible for captcha solving');
   const browser = await chromium.launch({
     headless: !isHeaded,
-    slowMo: isHeaded ? 300 : 150,
+    slowMo: isHeaded ? 100 : 150,
     timeout: 30000,
     args: [
       '--disable-blink-features=AutomationControlled',
@@ -60,12 +62,61 @@ export async function createContext(browser, opts = {}) {
     },
   });
 
-  // Erase navigator.webdriver on every new page to defeat basic bot detection
+  // Erase navigator.webdriver on every new page to defeat bot detection (including SR oneclick-ui)
   await context.addInitScript(() => {
+    // Core: remove webdriver flag
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    delete navigator.__proto__.webdriver;
+
+    // Chrome runtime mock (SR checks this)
+    window.chrome = {
+      runtime: { onMessage: { addListener: () => {}, removeListener: () => {} }, sendMessage: () => {}, id: 'mocked' },
+      loadTimes: () => ({  startLoadTime: Date.now() / 1000, firstPaintTime: Date.now() / 1000 + 0.1 }),
+      csi: () => ({ startE: Date.now(), onloadT: Date.now() + 100 }),
+    };
+
+    // Plugins array (headless has 0 plugins)
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => {
+        const arr = [
+          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+          { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
+        ];
+        arr.refresh = () => {};
+        return arr;
+      }
+    });
+
     Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    window.chrome = { runtime: {} };
+    Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
+
+    // Connection API (some bot detectors check this)
+    if (!navigator.connection) {
+      Object.defineProperty(navigator, 'connection', {
+        get: () => ({ effectiveType: '4g', rtt: 50, downlink: 10, saveData: false })
+      });
+    }
+
+    // Permissions API mock
+    const origQuery = window.Permissions?.prototype?.query;
+    if (origQuery) {
+      window.Permissions.prototype.query = (params) =>
+        params?.name === 'notifications'
+          ? Promise.resolve({ state: Notification.permission })
+          : origQuery.call(navigator.permissions, params);
+    }
+
+    // WebGL renderer (headless has different value)
+    const getParameter = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function(param) {
+      if (param === 37445) return 'Intel Inc.';
+      if (param === 37446) return 'Intel Iris OpenGL Engine';
+      return getParameter.call(this, param);
+    };
   });
   
   // Set a reasonable timeout — 10s for async form rendering

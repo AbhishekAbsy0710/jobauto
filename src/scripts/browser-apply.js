@@ -1755,9 +1755,32 @@ async function main() {
         !!(document.querySelector('iframe[src*="hcaptcha.com"], iframe[src*="recaptcha"], .h-captcha, #h-captcha, [class*="hcaptcha"], iframe[data-hcaptcha-widget-id]'))
       ).catch(() => false);
       if (hasCaptchaText || hasCaptchaWidget) {
-        job.hasCaptcha = true;
-        console.log('  🔒 hCaptcha/reCAPTCHA triggered post-submit — cannot solve automatically, marking for manual apply');
-        throw new Error('Captcha Blocked Submission — requires manual apply');
+        const isHeaded = process.env.LOCAL_RUN === 'true' || process.env.HEADED === 'true';
+        if (isHeaded) {
+          // In headed mode: pause and let user solve captcha manually
+          console.log('  🔒 Captcha detected — WAITING 90s for you to solve it in the browser window...');
+          // Wait for captcha to disappear OR success page to appear
+          try {
+            await page.waitForFunction(() => {
+              const body = document.body.innerText.toLowerCase();
+              const hasCaptcha = !!(document.querySelector('iframe[src*="hcaptcha.com"], iframe[src*="recaptcha"], .h-captcha, #h-captcha, [class*="hcaptcha"], iframe[data-hcaptcha-widget-id]'));
+              const isSuccess = body.includes('thank you') || body.includes('application received') || body.includes('successfully submitted') || body.includes('thanks for applying');
+              return !hasCaptcha || isSuccess;
+            }, { timeout: 90000 });
+            console.log('  ✅ Captcha solved! Continuing...');
+            // Give page time to process after captcha solve
+            await page.waitForTimeout(3000);
+          } catch (e) {
+            console.log('  ⏰ Captcha not solved in 90s — marking for manual apply');
+            job.hasCaptcha = true;
+            throw new Error('Captcha Blocked Submission — timed out waiting for manual solve');
+          }
+        } else {
+          // Headless mode: can't solve captcha, mark for manual
+          job.hasCaptcha = true;
+          console.log('  🔒 hCaptcha/reCAPTCHA triggered post-submit — cannot solve automatically, marking for manual apply');
+          throw new Error('Captcha Blocked Submission — requires manual apply');
+        }
       }
 
 
