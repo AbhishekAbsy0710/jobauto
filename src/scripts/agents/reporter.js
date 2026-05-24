@@ -105,31 +105,10 @@ export async function reportApplied(job, supabase, opts = {}) {
  * @param {object} supabase - Supabase client
  */
 export async function reportFailed(job, supabase) {
-  // Upload error screenshot
-  let errorProofUrl = null;
-  if (job.errorScreenshotPath && existsSync(job.errorScreenshotPath)) {
-    try {
-      const screenshotBuffer = readFileSync(job.errorScreenshotPath);
-      const fileName = `error_${job.eval_id}_${Date.now()}.jpeg`;
-      await supabase.storage.from('screenshots').upload(fileName, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
-      errorProofUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${fileName}`;
-    } catch (err) {}
-  }
+  // NOTE: DB writes (applications insert + jobs status update) are handled by
+  // dashboard-updater.recordFailure() — this function only sends Discord notification.
 
   const failureReason = job.hasCaptcha ? 'Captcha Blocked' : (job.errorMessage || 'Validation Error');
-
-  // Insert failure record
-  await supabase.from('applications').insert({
-    evaluation_id: job.eval_id,
-    method: failureReason.substring(0, 100),
-    status: 'failed',
-    pdf_path: job.tailoredPublicUrl || null,
-    screenshot_url: errorProofUrl || null,
-    applied_at: new Date().toISOString()
-  });
-
-  // Update job status to manual_queue
-  await supabase.from('jobs').update({ status: 'manual_queue' }).eq('id', job.id);
 
   // Discord notification
   await sendDiscordEmbed({

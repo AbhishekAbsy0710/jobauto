@@ -1911,89 +1911,20 @@ async function main() {
         // Track per-company count so subsequent jobs from same company are skipped
         const ck = (job.company||'').toLowerCase().trim();
         companiesApplied[ck] = (companiesApplied[ck] || 0) + 1;
-        // 5. Insert Application and Take Screenshot Proof
-        let methodCol = 'auto';
-        if (tailoredChanges !== 'Base Resume (No modifications)') {
-           methodCol = 'auto | ' + tailoredChanges.substring(0, 100);
-        }
 
-        // Upload proof screenshot — use job.id as fallback if eval_id is null
-        let screenshotUrl = null;
-        try {
-          const proofId = job.eval_id || job.id;
-          const screenshotPath = join(ROOT, `proof_${proofId}_${Date.now()}.jpeg`);
-          await page.screenshot({ path: screenshotPath, fullPage: true, quality: 40, type: 'jpeg' });
-          const screenshotBuffer = readFileSync(screenshotPath);
-          const proofFileName = `proof_${proofId}_${Date.now()}.jpeg`;
-          await supabase.storage.from('screenshots').upload(proofFileName, screenshotBuffer, { upsert: true, contentType: 'image/jpeg' });
-          screenshotUrl = `https://swscpdtchfjyzpjhwqqj.supabase.co/storage/v1/object/public/screenshots/${proofFileName}`;
-          console.log(`  📸 Proof screenshot uploaded: ${proofFileName}`);
-        } catch (ssErr) {
-          console.log(`  ⚠️ Failed to upload proof screenshot: ${ssErr.message}`);
-        }
+        // ── Dashboard Agent: Upload proof screenshot ──
+        const screenshotUrl = await uploadProofScreenshot(page, job, supabase);
 
-        const { data: appData } = await supabase.from('applications').insert({
-          evaluation_id: job.eval_id,
-          method: methodCol,
-          status: 'submitted',
-          pdf_path: tailoredInfo.publicUrl || RESUME_PATH,
-          screenshot_url: screenshotUrl,
-          applied_at: new Date().toISOString()
-        }).select('id').single();
+        // ── Dashboard Agent: Record success (Supabase insert + status update) ──
+        await recordSuccess(job, supabase, {
+          screenshotUrl,
+          tailoredResumeUrl: tailoredInfo.publicUrl,
+          tailoredChanges,
+          activeResumePath,
+        });
 
-        if (appData) {
-          job.app_id = appData.id;
-          job.screenshotUrl = screenshotUrl;
-        }
-        job.resumeUsed = basename(activeResumePath || RESUME_PATH);
-        // Save proof URL, resume URL, and timestamp directly into jobs row for easy dashboard display
-        try {
-          const { error: upErr } = await supabase.from('jobs').update({
-            status: 'applied',
-            proof_url: screenshotUrl || null,
-            tailored_resume_url: tailoredInfo.publicUrl || null,
-            applied_at: new Date().toISOString(),
-          }).eq('id', job.id);
-          if (upErr) {
-            // Fallback: columns may not exist yet — just update status
-            await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id);
-          }
-        } catch (upCatchErr) {
-          try { await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id); } catch(e) {}
-        }
-        
-        // 6. Send Cold Email and track result for Discord
-        try {
-          const { sendColdEmail } = await import('../services/cold-email.js');
-          // Use readable YAML profile instead of raw PDF bytes which breaks Groq!
-          const cvText = PROFILE_YAML; 
-          const emailResult = await sendColdEmail(job, null, cvText, activeResumePath);
-          
-          if (emailResult && emailResult.target) {
-            job.coldEmailSent = true;
-            job.coldEmailTarget = emailResult.target;
-            job.coldEmailSubject = emailResult.subject;
-            job.coldEmailBody = emailResult.body;
-          } else {
-            job.coldEmailSent = false;
-            job.coldEmailError = 'AI generation failed or target blocked';
-          }
-        } catch (emailErr) {
-          console.log(`  ⚠️ Cold email failed: ${emailErr.message}`);
-          job.coldEmailSent = false;
-          job.coldEmailError = emailErr.message;
-        }
-
-        // Save cold email result to the applications record via method field extension
-        // Format: "auto | tailoring changes ||| cold_email:{status}:{target}:{subject}"
-        try {
-          const coldStr = job.coldEmailSent
-            ? `COLD_EMAIL_SENT:${job.coldEmailTarget || ''}:${(job.coldEmailSubject||'').substring(0,80)}`
-            : `COLD_EMAIL_SKIP:${(job.coldEmailError||'not sent').substring(0,80)}`;
-          await supabase.from('applications')
-            .update({ method: `${(await supabase.from('applications').select('method').eq('id', job.latestAppId||0).single())?.data?.method || 'auto'} ||| ${coldStr}` })
-            .eq('evaluation_id', job.eval_id);
-        } catch {}
+        // ── Dashboard Agent: Track cold email ──
+        await trackColdEmail(job, supabase, activeResumePath);
 
         appliedJobs.push(job);
       } else {
@@ -2048,17 +1979,16 @@ async function main() {
            const errorScreenshotPath = join(ROOT, `error_${job.eval_id}.jpeg`);
            await page.screenshot({ path: errorScreenshotPath, fullPage: true, quality: 40, type: 'jpeg' });
            job.errorScreenshotPath = errorScreenshotPath;
-           
-           // DEBUG: Dump HTML to see what text caused the validation error
-           const htmlDumpPath = join(ROOT, `error_${job.eval_id}.html`);
-           const html = await page.content();
-           writeFileSync(htmlDumpPath, html);
          } catch (err) {}
       }
       
       failedJobs.push(job);
-      // Revert to manual_queue
-      await supabase.from('jobs').update({ status: 'manual_queue' }).eq('id', job.id);
+
+      // ── Dashboard Agent: Record failure (screenshot upload + DB insert + status revert) ──
+      await recordFailure(job, supabase, {
+        errorScreenshotPath: job.errorScreenshotPath,
+        tailoredResumeUrl: tailoredInfo?.publicUrl,
+      });
     }
 
     await page.close().catch(() => {});
