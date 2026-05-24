@@ -373,13 +373,20 @@ Deal breakers: ${dealBreakers.join(', ')}
   console.log(`   Errors:       ${results.errors}`);
   console.log('');
 
-  // Promote 'new' jobs that HAVE evaluations → auto_queue
-  // (never promote jobs without evaluations to avoid ? scores)
+  // ── Promote 'new' jobs → auto_queue ────────────────────────────────────────
+  // Two paths:
+  //   1) Evaluated jobs → auto_queue (if action != 'skip')
+  //   2) Unevaluated jobs from auto-eligible platforms that are 30+ min old
+  //      (gives evaluator time to run, but doesn't block the pipeline)
+
+  // Path 1: Evaluated jobs
   const { data: evaledNew } = await supabase
     .from('evaluations')
     .select('job_id')
     .not('job_id', 'is', null);
   const evaledJobIds = (evaledNew || []).map(e => e.job_id);
+
+  let totalPromoted = 0;
 
   if (evaledJobIds.length > 0) {
     const { data: promoted, error: promErr } = await supabase
@@ -389,8 +396,28 @@ Deal breakers: ${dealBreakers.join(', ')}
       .in('id', evaledJobIds)
       .select('id');
     if (!promErr && promoted?.length > 0) {
+      totalPromoted += promoted.length;
       console.log(`   ♻️  Promoted ${promoted.length} evaluated 'new' jobs → auto_queue`);
     }
+  }
+
+  // Path 2: Unevaluated jobs from auto-eligible platforms (30+ min old)
+  // Captcha platforms (greenhouse, ashby, lever) are already routed to manual_queue
+  // at upsert time, so these will be SmartRecruiters, ArbeitNow, StepStone, etc.
+  const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { data: unevaluated, error: unErr } = await supabase
+    .from('jobs')
+    .update({ status: 'auto_queue', updated_at: new Date().toISOString() })
+    .eq('status', 'new')
+    .lt('scraped_at', thirtyMinAgo)
+    .select('id');
+  if (!unErr && unevaluated?.length > 0) {
+    totalPromoted += unevaluated.length;
+    console.log(`   ♻️  Promoted ${unevaluated.length} unevaluated 'new' jobs → auto_queue (30+ min old)`);
+  }
+
+  if (totalPromoted > 0) {
+    console.log(`   📊 Total promoted to auto_queue: ${totalPromoted}`);
   }
 }
 
