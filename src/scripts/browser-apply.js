@@ -1382,7 +1382,7 @@ async function main() {
         // CRITICAL: Do NOT remove OneTrust DOM elements — SR's SPA depends on them.
         // Instead: 1) Click "Accept All" on the cookie banner
         //          2) Hide overlays via CSS (not DOM removal)
-        //          3) Wait for SR SPA to render the application form
+        //          3) Wait for SR SPA React root to fully render
 
         // Step 1: Click the cookie banner "Accept All" button
         const acceptBtn = await page.$('button#onetrust-accept-btn-handler').catch(() => null);
@@ -1418,11 +1418,50 @@ async function main() {
           document.head.appendChild(style);
         }).catch(() => {});
 
-        // Step 3: Wait for SR SPA to render — it's React-based and needs time
+        // Step 3: Wait for SR SPA React form to actually render
+        // The oneclick-ui page has a React root that mounts the application form asynchronously.
+        // We need to wait for REAL form elements, not just a timeout.
         console.log(`  ⏳ Waiting for SR application form to render...`);
-        await page.waitForTimeout(5000);
         
-        // Step 4: Check if any form elements appeared
+        // Wait for any of these SR form indicators (up to 20s)
+        const srFormLoaded = await Promise.race([
+          page.waitForSelector('input[name="firstName"], input[name="first_name"], input[data-qa="firstName"]', { timeout: 20000 }).then(() => 'firstName'),
+          page.waitForSelector('input[name="lastName"], input[name="last_name"], input[data-qa="lastName"]', { timeout: 20000 }).then(() => 'lastName'),
+          page.waitForSelector('input[name="email"], input[data-qa="email"], input[type="email"]', { timeout: 20000 }).then(() => 'email'),
+          page.waitForSelector('input[type="file"], input[data-qa="upload-resume"]', { timeout: 20000 }).then(() => 'fileUpload'),
+          page.waitForSelector('[data-qa="btn-submit"], button[type="submit"]:not(#onetrust-accept-btn-handler)', { timeout: 20000 }).then(() => 'submitBtn'),
+          page.waitForSelector('.application-form, .job-application, [class*="ApplicationForm"]', { timeout: 20000 }).then(() => 'formContainer'),
+          // Consent/GDPR step also counts as form loaded
+          page.waitForSelector('input[type="checkbox"][name*="consent"], input[type="checkbox"][name*="privacy"], input[type="checkbox"][name*="gdpr"]', { timeout: 20000 }).then(() => 'consentCheckbox'),
+          new Promise(resolve => setTimeout(() => resolve('timeout'), 22000)),
+        ]).catch(() => 'timeout');
+
+        console.log(`  📋 SR form detection result: ${srFormLoaded}`);
+
+        if (srFormLoaded === 'timeout') {
+          // Form didn't render — try reloading the page (SR SPA sometimes fails on first load)
+          console.log(`  🔄 SR form didn't render — reloading page...`);
+          await page.reload({ waitUntil: 'networkidle', timeout: 20000 }).catch(() => {});
+          await page.waitForTimeout(3000);
+
+          // Dismiss cookie banner again after reload
+          const reloadAcceptBtn = await page.$('button#onetrust-accept-btn-handler').catch(() => null);
+          if (reloadAcceptBtn && await reloadAcceptBtn.isVisible().catch(() => false)) {
+            await reloadAcceptBtn.click();
+            await page.waitForTimeout(2000);
+          }
+
+          // Wait again for form elements (shorter timeout this time)
+          const retryResult = await Promise.race([
+            page.waitForSelector('input[name="firstName"], input[name="email"], input[type="email"], input[type="file"]', { timeout: 15000 }).then(() => 'found'),
+            page.waitForSelector('input[type="checkbox"][name*="consent"], input[type="checkbox"][name*="privacy"]', { timeout: 15000 }).then(() => 'consent'),
+            new Promise(resolve => setTimeout(() => resolve('timeout'), 16000)),
+          ]).catch(() => 'timeout');
+
+          console.log(`  📋 SR retry result: ${retryResult}`);
+        }
+        
+        // Step 4: Final check — log what we found
         const formCheck = await page.evaluate(() => {
           const inputs = document.querySelectorAll('input:not([type="hidden"]), textarea, select, button[data-qa]');
           const visibleInputs = Array.from(inputs).filter(el => el.offsetParent !== null && el.offsetWidth > 0);
@@ -1430,7 +1469,7 @@ async function main() {
           return {
             totalInputs: inputs.length,
             visibleInputs: visibleInputs.length,
-            visibleTypes: visibleInputs.slice(0, 5).map(el => `${el.tagName}[${el.type || el.getAttribute('data-qa') || ''}]`),
+            visibleTypes: visibleInputs.slice(0, 5).map(el => `${el.tagName}[${el.type || el.getAttribute('data-qa') || el.getAttribute('name') || ''}]`),
             bodyPreview: bodyText.replace(/\s+/g, ' ').substring(0, 300),
             url: window.location.href
           };
@@ -1440,9 +1479,6 @@ async function main() {
         console.log(`  📋 Input types: ${formCheck.visibleTypes.join(', ') || 'none'}`);
         if (formCheck.visibleInputs === 0) {
           console.log(`  📋 Body preview: ${formCheck.bodyPreview}`);
-          // Extra wait for slow SPA rendering
-          console.log(`  ⏳ No form elements found — waiting 8s more for SPA...`);
-          await page.waitForTimeout(8000);
         }
       }
       // ─────────────────────────────────────────────────────────────────────────────────────
