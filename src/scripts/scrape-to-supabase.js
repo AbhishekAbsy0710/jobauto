@@ -24,6 +24,7 @@ import { scrapeWTTJ } from '../scrapers/welcometothejungle.js';
 import { scrapeRemotive } from '../scrapers/remotive.js';
 import { scrapeHimalayas } from '../scrapers/himalayas.js';
 import { scrapeJobicy } from '../scrapers/jobicy.js';
+import { scrapeBigTech } from '../scrapers/bigtech.js';
 import { loadConfig, loadPortals } from '../config.js';
 
 const supabase = createClient(
@@ -323,6 +324,9 @@ Deal breakers: ${dealBreakers.join(', ')}
     scrapeJobicy().catch(e => { console.log(`  ⚠️  Jobicy: ${e.message}`); return []; }),
   ]);
 
+  // ── Batch 5: Big Tech direct career pages ──────────────────────────────────
+  const bigTechRes = await scrapeBigTech().catch(e => { console.log(`  ⚠️  BigTech: ${e.message}`); return []; });
+
   const allJobs = [
     ...(arbeitnowRes.status === 'fulfilled' ? arbeitnowRes.value : []),
     ...(remoteOkRes.status === 'fulfilled' ? remoteOkRes.value : []),
@@ -342,6 +346,7 @@ Deal breakers: ${dealBreakers.join(', ')}
     ...(remotiveRes.status === 'fulfilled' ? remotiveRes.value : []),
     ...(himalayasRes.status === 'fulfilled' ? himalayasRes.value : []),
     ...(jobicyRes.status === 'fulfilled' ? jobicyRes.value : []),
+    ...(Array.isArray(bigTechRes) ? bigTechRes : []),
   ];
 
   console.log(`\n📋 Total scraped: ${allJobs.length} jobs — now evaluating & upserting...\n`);
