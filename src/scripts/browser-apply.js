@@ -1469,8 +1469,9 @@ async function main() {
 
     try {
       // Platform-level block — Ashby ATS always shows captchas
-      const jobUrl = (job.url || '').toLowerCase();
-      if (jobUrl.includes('ashbyhq.com')) {
+      const jobApplyLink = (job.apply_link || '').toLowerCase();
+      const jobPlatform = (job.platform || '').toLowerCase();
+      if (jobApplyLink.includes('ashbyhq.com') || jobPlatform === 'ashby') {
         console.log(`  🚫 Skipping — Ashby platform blocked (captcha on every submit)`);
         results.skipped++;
         await page.close().catch(() => {});
