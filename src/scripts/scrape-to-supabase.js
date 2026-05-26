@@ -31,7 +31,7 @@ const supabase = createClient(
 
 // ── Groq evaluator ────────────────────────────────────────────────────────────
 async function evaluateJob(job, profileText) {
-  // Try Gemini first (free, 1500 req/day, richer output), fallback to Groq
+  // Try Groq/Llama first (reliable, fast), fallback to Gemini
   const geminiKey = process.env.GEMINI_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
 
@@ -72,7 +72,38 @@ action rules: A/B → "auto_queue", C → "manual_queue", D/F → "skip"`;
 
   const userMsg = `CANDIDATE PROFILE:\n${profileText}\n\nJOB TITLE: ${job.title}\nCOMPANY: ${job.company}\nLOCATION: ${job.location}\nDESCRIPTION:\n${(job.description || '').slice(0, 2500)}`;
 
-  // --- Try Gemini first ---
+  // --- Try Groq/Llama first (reliable, fast) ---
+  if (groqKey) {
+    try {
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          temperature: 0.1,
+          max_tokens: 1200,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: richPrompt },
+            { role: 'user', content: userMsg }
+          ]
+        })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.choices?.[0]?.message?.content || '';
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          parsed._model = 'llama-3.3-70b';
+          parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
+          return parsed;
+        }
+      }
+    } catch { /* fall through to Gemini */ }
+  }
+
+  // --- Fallback: Gemini ---
   if (geminiKey) {
     try {
       const resp = await fetch(
@@ -97,35 +128,7 @@ action rules: A/B → "auto_queue", C → "manual_queue", D/F → "skip"`;
           return parsed;
         }
       }
-    } catch { /* fall through to Groq */ }
-  }
-
-  // --- Fallback: Groq/Llama ---
-  if (groqKey) {
-    try {
-      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${groqKey}` },
-        body: JSON.stringify({
-          model: 'llama-3.1-8b-instant',
-          temperature: 0.1,
-          max_tokens: 1200,
-          messages: [
-            { role: 'system', content: richPrompt },
-            { role: 'user', content: userMsg }
-          ]
-        })
-      });
-      if (!resp.ok) return null;
-      const data = await resp.json();
-      const text = data.choices?.[0]?.message?.content || '';
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) return null;
-      const parsed = JSON.parse(match[0]);
-      parsed._model = 'llama-3.1-8b';
-      parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
-      return parsed;
-    } catch { return null; }
+    } catch { /* fall through */ }
   }
 
   return null;
