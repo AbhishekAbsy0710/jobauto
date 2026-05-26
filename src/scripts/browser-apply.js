@@ -1468,8 +1468,18 @@ async function main() {
     console.log(`\n━━━ ${job.title} @ ${job.company} ━━━`);
 
     try {
-      // Per-company rate limit gate — skip if already applied to this company MAX_PER_COMPANY times
+      // Permanent block list — companies that have rate-limited or banned us
+      const BLOCKED_COMPANIES = ['supabase'];
       const companyKey = (job.company || '').toLowerCase().trim();
+      if (BLOCKED_COMPANIES.some(bc => companyKey.includes(bc))) {
+        console.log(`  🚫 Skipping — ${job.company} is permanently blocked (apply limits)`);
+        results.skipped++;
+        await page.close().catch(() => {});
+        try { await supabase.from('jobs').update({ status: 'archived' }).eq('id', job.id); } catch(e) {}
+        continue;
+      }
+
+      // Per-company rate limit gate — skip if already applied to this company MAX_PER_COMPANY times
       if (companiesApplied[companyKey] >= MAX_PER_COMPANY) {
         console.log(`  ⏭️ Skipping — already applied to ${job.company} ${companiesApplied[companyKey]}x this run (limit: ${MAX_PER_COMPANY})`);
         results.skipped++;
