@@ -154,7 +154,7 @@ export async function generateTailoredResume(job, context, supabase, fallbackPat
       : await callGroq(
           'You are a strict ATS. Compare resume to JD. Return JSON: {"score": integer 0-100}',
           `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume:\n${JSON.stringify(tailoredJson)}`,
-          'llama-3.1-8b-instant'
+          'llama-3.3-70b-versatile'
         );
     let score = 0;
     try {

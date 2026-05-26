@@ -30,7 +30,7 @@ export const PROFILE = {
   phone: process.env.APPLICANT_PHONE || '+49 176 6723 9250',
   linkedin: 'https://www.linkedin.com/in/abhishek-raj-pagadala',
   github: 'https://github.com/AbhishekAbsy0710',
-  city: 'Munich',
+  city: 'Berlin',
   country: 'Germany',
 };
 
@@ -57,13 +57,45 @@ export const STATIC_ANSWERS = [
   // Preferred name
   { patterns: [/preferred.*name/i, /preferred first/i], value: 'Abhishek', type: 'text' },
   // Twitter/X profile
-  { patterns: [/twitter/i, /\bx\.com\b/i, /x\s*\/\s*twitter/i, /twitter.*profile/i], value: 'https://x.com/AbhishekAbsy', type: 'text' },
+  { patterns: [/twitter/i, /\bx\.com\b/i, /x\s*\/\s*twitter/i, /twitter.*profile/i], value: '', type: 'text' },
   // Pronouns
   { patterns: [/pronoun/i], value: 'He/him', type: 'text' },
   // Visa sponsorship (plain radio/select)
   { patterns: [/\brequire.*visa\b/i, /\bneed.*visa.*sponsor/i, /\bvisa.*required\b/i], value: 'No', type: 'radio' },
   // Work authorization (plain text/radio)
   { patterns: [/work.*authoriz/i, /work.*permit/i, /right.*to.*work/i], value: 'Yes', type: 'radio' },
+  // Gender different from assigned at birth (transgender question) — must come BEFORE generic gender
+  { patterns: [/different.*gender.*assigned/i, /gender.*different.*birth/i, /identify.*gender.*different/i, /transgender/i, /assigned.*at.*birth/i], value: 'No', type: 'text' },
+  // Gender — user is Male
+  { patterns: [/\bgender\b/i, /gender.*identify/i], value: 'Man', type: 'text' },
+  // Disability
+  { patterns: [/disability/i, /disabled/i, /neurodivergent/i], value: 'No', type: 'text' },
+  // Veteran status
+  { patterns: [/veteran/i, /military/i], value: 'I prefer not to answer', type: 'text' },
+  // Sexual orientation
+  { patterns: [/sexual.*orientation/i], value: 'I prefer not to answer', type: 'text' },
+  // Race/ethnicity
+  { patterns: [/race/i, /ethnicity/i, /hispanic/i, /latin.*american/i], value: 'I prefer not to answer', type: 'text' },
+  // First generation education
+  { patterns: [/first.*generation/i, /first.*family.*study/i], value: 'No', type: 'text' },
+  // Age range
+  { patterns: [/\bage\b/i, /age.*range/i, /what.*your.*age/i], value: '26-34', type: 'text' },
+  // When can you start / earliest start date (broader match than notice period)
+  { patterns: [/when.*can.*start/i, /earliest.*start/i, /available.*from/i, /how.*soon/i], value: 'Immediately', type: 'text' },
+  // How did you hear
+  { patterns: [/how.*did.*you.*hear/i, /where.*hear/i, /how.*find/i, /referral.*source/i], value: 'LinkedIn', type: 'text' },
+  // Office / flexible working / commutable — answer YES, willing to work from office
+  { patterns: [/willing.*to.*work.*from.*the.*office/i, /work.*from.*office/i, /commutable.*distance/i, /flexible.*working.*model/i, /willing.*to.*relocate/i, /willing.*work.*office/i], value: 'Yes', type: 'text' },
+  // Are you a customer / Do you use our product
+  { patterns: [/are.*you.*a.*customer/i, /are.*you.*currently.*a/i, /do.*you.*use/i], value: 'Yes', type: 'radio' },
+  // Salary band / compensation expectations
+  { patterns: [/salary.*band.*meet/i, /salary.*expectation.*meet/i, /advertised.*salary/i, /compensation.*meet/i], value: 'Yes', type: 'radio' },
+  // Audit firm / employed by external audit (Wise-specific)
+  { patterns: [/audit.*firm/i, /external.*audit/i, /employed.*by.*audit/i, /PwC|Deloitte|KPMG|EY/i], value: 'No', type: 'radio' },
+  // Financial statements involvement (Wise-specific)
+  { patterns: [/financial.*statement/i, /audit.*of.*financial/i, /partner.*review/i], value: 'No', type: 'radio' },
+  // Eligible to work / work in this location
+  { patterns: [/eligible.*to.*work/i, /how.*are.*you.*eligible/i, /right.*to.*work.*location/i], value: 'Unrestricted right to work (e.g. Citizen/Residency/Visa etc - no sponsorship required)', type: 'text' },
 ];
 
 /**
@@ -87,9 +119,9 @@ export const SUBMIT_SELECTORS = [
   'button[type="submit"]',
   'input[type="submit"]',
   // SmartRecruiters
-  'button[data-qa="btn-apply"]',
-  'button[data-qa="action-button"]',
-  'button[class*="wds-button"][class*="primary"]',
+  '[data-qa="btn-apply"]:not(:has-text("Next" i)):not(:has-text("Continue" i))',
+  '[data-qa="action-button"]:not(:has-text("Next" i)):not(:has-text("Continue" i))',
+  'button[class*="wds-button"][class*="primary"]:not(:has-text("Next" i)):not(:has-text("Continue" i))',
   'button:has-text("Submit Application")',
   'button:has-text("Submit application")',
   'button:has-text("Send application")',
@@ -105,12 +137,12 @@ export const SUBMIT_SELECTORS = [
   'a.postings-btn',
   // Generic text
   'button:has-text("Submit")',
-  'button:has-text("Apply")',
-  'button:has-text("Apply Now")',
+  'button:has-text("Apply"):not(:has-text("Indeed" i)):not(:has-text("LinkedIn" i))',
+  'button:has-text("Apply Now"):not(:has-text("Indeed" i)):not(:has-text("LinkedIn" i))',
   'button:has-text("Send Application")',
   'button:has-text("Send your application")',
   'button:has-text("Bewerbung absenden")',
-  'button:has-text("Jetzt bewerben")',
+  'button:has-text("Jetzt bewerben"):not(:has-text("Indeed" i)):not(:has-text("LinkedIn" i))',
   // Workday
   'button[data-automation-id="bottom-navigation-next-button"]',
   'button[data-automation-id="bottom-navigation-review-btn"]',
@@ -121,8 +153,8 @@ export const SUBMIT_SELECTORS = [
   // Misc
   'button.submit-application',
   '[data-action="submit"]',
-  'button[aria-label*="submit" i]',
-  'button[aria-label*="apply" i]',
+  'button[aria-label*="submit" i]:not(:has-text("Indeed" i)):not(:has-text("LinkedIn" i))',
+  'button[aria-label*="apply" i]:not(:has-text("Indeed" i)):not(:has-text("LinkedIn" i))',
 ];
 
 // ── Next/Continue Button Selectors ────────────────────────────────────────────
@@ -133,13 +165,17 @@ export const NEXT_SELECTORS = [
   'button:has-text("Next Step")',
   'button:has-text("Next Page")',
   'button:has-text("Review")',
-  // SmartRecruiters specific
-  'button[data-qa="action-button"]',
-  'button[class*="wds-button"]',
-  'button:has-text("Start Application")',
-  'button:has-text("Start application")',
-  'button:has-text("I understand")',
+  'sr-button:has-text("Next")',
+  'sr-button:has-text("Continue")',
+  'spl-button:has-text("Next")',
+  'spl-button:has-text("Continue")',
+  '[data-qa="action-button"]',
+  '[data-qa="btn-apply"]:not([aria-label*="indeed" i]):not(:has-text("Indeed" i))',
   '[data-qa="btn-continue"]',
+  '[data-qa="btn-continue"]',
+  '[data-qa*="next" i]',
+  '[data-qa*="continue" i]',
+  'button[class*="wds-button"]',
   // Workday / generic
   'button[data-testid="next-button"]',
   'button[data-testid="continue"]',
@@ -204,7 +240,7 @@ export const SKIP_KEYWORDS = [
 ];
 
 // ── Pipeline Constants ────────────────────────────────────────────────────────
-export const MAX_JOBS_PER_RUN = 25;
+export const MAX_JOBS_PER_RUN = 5;
 export const MAX_PREFILTER_PER_COMPANY = 3;
 export const MAX_PER_COMPANY = 2;
 export const MAX_STEPS = 10;

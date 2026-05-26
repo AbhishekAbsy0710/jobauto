@@ -23,7 +23,7 @@ export async function callLLM(systemPrompt, userPrompt, options = {}) {
 // GROQ — Free, fast, llama-3.3-70b
 // ============================================
 async function callGroq(apiKey, systemPrompt, userPrompt, options = {}) {
-  const model = options.model || 'llama-3.1-8b-instant';
+  const model = options.model || 'llama-3.3-70b-versatile';
   const maxRetries = options.maxRetries ?? 3;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {

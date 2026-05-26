@@ -641,7 +641,7 @@ async function loadApplied() {
   try {
     // Pull applied jobs with evaluation data directly from Supabase
     const jobs = await sbFetch(
-      `/rest/v1/jobs?select=id,title,company,location,platform,apply_link,applied_at,status,proof_url,description,` +
+      `/rest/v1/jobs?select=id,title,company,location,platform,apply_link,applied_at,status,proof_url,tailored_resume_url,description,` +
       `evaluations(letter_grade,weighted_score,matching_skills,missing_skills,dimension_scores,resume_improvements,reason,archetype)` +
       `&status=eq.applied&order=applied_at.desc&limit=100`
     );
@@ -676,7 +676,7 @@ async function loadApplied() {
           reason: ev?.reason || '',
           archetype: ev?.archetype || '',
           screenshot_url: j.proof_url,
-          pdf_path: null,
+          pdf_path: j.tailored_resume_url || null,
           failure_reason: null,
           job_id: j.id,
         };
@@ -742,9 +742,15 @@ async function loadApplied() {
 
       // Resume improvements snippet
       const resumeTip = (r.resume_improvements || [])[0];
-      const resumeHtml = resumeTip
-        ? `<span style="color:#4da6ff;font-size:11px;cursor:help;" title="${esc(resumeTip)}">📄 Tailored</span>`
-        : '<span style="color:#555;font-size:11px;">📄 Base</span>';
+      let resumeHtml = '<span style="color:#555;font-size:11px;">📄 Base</span>';
+      
+      if (resumeTip || r.pdf_path) {
+        if (r.pdf_path) {
+          resumeHtml = `<a href="${r.pdf_path}" target="_blank" style="color:#4da6ff;font-size:11px;text-decoration:none;" title="${esc(resumeTip || 'View Tailored Resume')}">📄 Tailored</a>`;
+        } else {
+          resumeHtml = `<span style="color:#4da6ff;font-size:11px;cursor:help;" title="${esc(resumeTip)}">📄 Tailored</span>`;
+        }
+      }
 
       // Cold email status
       const coldEmailHtml = r.type === 'applied'

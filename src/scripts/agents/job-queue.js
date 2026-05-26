@@ -75,7 +75,9 @@ export async function getJobQueue(supabase, opts = {}) {
     if (greenhouseJobs.length > 0) {
       console.log(`  ⚠️  Skipping ${greenhouseJobs.length} Greenhouse jobs (Cloudflare blocks GHA IPs) — moved to manual_queue`);
       for (const gj of greenhouseJobs) {
-        await supabase.from('jobs').update({ status: 'manual_queue' }).eq('id', gj.id).catch(() => {});
+        try {
+          await supabase.from('jobs').update({ status: 'manual_queue' }).eq('id', gj.id);
+        } catch (e) {}
       }
     }
     jobs = jobs.filter(j => !(j.apply_link || '').includes('greenhouse'));

@@ -121,7 +121,7 @@ export async function reportFailed(job, supabase) {
       { name: '❌ Reason', value: failureReason.substring(0, 200), inline: false },
       { name: '👉 Apply Manually', value: `[Click Here](${job.apply_link})`, inline: false },
     ],
-    image: errorProofUrl ? { url: errorProofUrl } : undefined,
+    image: job.errorProofUrl ? { url: job.errorProofUrl } : undefined,
     timestamp: new Date().toISOString(),
     footer: { text: 'JobAuto — Manual Apply Required ⚠️' }
   });

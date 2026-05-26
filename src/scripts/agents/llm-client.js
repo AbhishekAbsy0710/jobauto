@@ -45,9 +45,35 @@ export async function callGemini(systemPrompt, userPrompt) {
   }
 }
 
-// ── Groq API with TPD/TPM cascade ──────────────────────────────────────────────
-export async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-instant') {
+// Ordered fallback chain — each model cascades to the NEXT one
+const MODEL_CASCADE = [
+  'llama-3.3-70b-versatile',                         // 100k TPD — primary, best quality
+  'meta-llama/llama-4-scout-17b-16e-instruct',       // 500k TPD — 17b, very capable
+  'mixtral-8x7b-32768',                              // 500k TPD — 47B MoE, much smarter than 8b
+  'llama-3.1-8b-instant',                             // 500k TPD — last resort Groq
+  '__gemini__',                                       // Gemini 2.0 Flash — 1M TPD, virtually unlimited
+];
+
+function getNextModel(currentModel) {
+  const idx = MODEL_CASCADE.indexOf(currentModel);
+  if (idx === -1 || idx >= MODEL_CASCADE.length - 1) return null;
+  return MODEL_CASCADE[idx + 1];
+}
+
+export async function callGroq(systemPrompt, userPrompt, model = 'llama-3.3-70b-versatile', _depth = 0) {
+  // Recursion guard — prevent infinite loops
+  if (_depth > MODEL_CASCADE.length + 2) {
+    console.log(`  ⚠️ Max cascade depth reached — returning empty`);
+    return '{}';
+  }
   if (!process.env.GROQ_API_KEY) return '{}';
+
+  // If we've cascaded all the way to Gemini, use it directly
+  if (model === '__gemini__') {
+    console.log(`  🔄 All Groq models exhausted → trying Gemini 2.0 Flash...`);
+    return await callGemini(systemPrompt, userPrompt);
+  }
+
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -70,41 +96,32 @@ export async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-i
       const errText = await res.text();
       console.log(`  ⚠️ Groq API Error (${model}): ${res.status} - ${errText.substring(0,200)}`);
       
-      // Model decommissioned — try 70b
-      if (res.status === 400 && errText.includes('decommissioned')) {
-        if (model !== 'llama-3.3-70b-versatile') {
-          console.log(`  🔄 Model decommissioned, switching to llama-3.3-70b-versatile...`);
-          return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+      // Model decommissioned or not found — skip to NEXT model in cascade (never loop back!)
+      if (res.status === 400 && (errText.includes('decommissioned') || errText.includes('does not exist'))) {
+        const next = getNextModel(model);
+        if (next) {
+          console.log(`  🔄 Model ${model} decommissioned → trying ${next}...`);
+          return await callGroq(systemPrompt, userPrompt, next, _depth + 1);
         }
         return '{}';
       }
 
       if (res.status === 413) {
-        if (model !== 'llama-3.3-70b-versatile') {
-          console.log(`  🔄 Request too large, trying 70b...`);
-          return await callGroq(systemPrompt, userPrompt, 'llama-3.3-70b-versatile');
+        const next = getNextModel(model);
+        if (next) {
+          console.log(`  🔄 Request too large for ${model} → trying ${next}...`);
+          return await callGroq(systemPrompt, userPrompt, next, _depth + 1);
         }
         return '{}';
       }
       
-      // TPD (daily token limit) cascade:
-      //   llama-3.1-8b-instant : 500k TPD  (default)
-      //   gemma2-9b-it         : 500k TPD  (fallback #1)
-      //   llama3-8b-8192       : 500k TPD  (fallback #2)
-      //   Gemini 1.5 Flash     : 1M  TPD   (fallback #3 — virtually unlimited)
-      //   → apply with base resume          (last resort)
+      // TPD (daily token limit) — cascade to next model
       if (res.status === 429 && errText.includes('TPD')) {
-        if (model === 'llama-3.1-8b-instant') {
-          console.log(`  🔄 8b TPD limit → trying gemma2-9b-it...`);
-          return await callGroq(systemPrompt, userPrompt, 'gemma2-9b-it');
-        }
-        if (model === 'gemma2-9b-it') {
-          console.log(`  🔄 gemma2 TPD limit → trying llama3-8b-8192...`);
-          return await callGroq(systemPrompt, userPrompt, 'llama3-8b-8192');
-        }
-        if (model === 'llama3-8b-8192') {
-          console.log(`  🔄 All Groq models hit daily limit → trying Gemini 1.5 Flash...`);
-          return await callGemini(systemPrompt, userPrompt);
+        const next = getNextModel(model);
+        if (next) {
+          const nextLabel = next === '__gemini__' ? 'Gemini 2.0 Flash' : next;
+          console.log(`  🔄 ${model} TPD limit → trying ${nextLabel}...`);
+          return await callGroq(systemPrompt, userPrompt, next, _depth + 1);
         }
         console.log(`  ⚠️ All AI models hit daily limit. Applying with base resume...`);
         return '{}';
@@ -116,7 +133,7 @@ export async function callGroq(systemPrompt, userPrompt, model = 'llama-3.1-8b-i
         const waitTime = waitMatch ? (parseFloat(waitMatch[1]) * 1000) + 1000 : 15000;
         console.log(`  ⏳ TPM limit hit. Waiting ${Math.round(waitTime/1000)}s before retry...`);
         await new Promise(r => setTimeout(r, waitTime));
-        return await callGroq(systemPrompt, userPrompt, model);
+        return await callGroq(systemPrompt, userPrompt, model, _depth + 1);
       }
       
       return '{}';

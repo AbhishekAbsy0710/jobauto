@@ -80,58 +80,144 @@ export async function submitForm(page, opts = {}) {
     const stepBodyText = await page.textContent('body').catch(() => '');
     const isReviewStep = FINAL_PAGE_SIGNALS.some(s => stepBodyText.toLowerCase().includes(s));
 
-    // Try Submit first (always highest priority)
-    let clickedSomething = false;
-    for (const sel of SUBMIT_SELECTORS) {
-      const btn = await page.$(sel).catch(() => null);
-      if (btn && await btn.isVisible().catch(() => false)) {
-        await page.screenshot({ path: 'debug_pre_submit.png', fullPage: true }).catch(() => {});
-        console.log(`  🔘 Step ${stepCount}: Clicking SUBMIT`);
-        await btn.scrollIntoViewIfNeeded().catch(() => {});
-        await btn.click({ timeout: 10000 }).catch(async () => {
-          await btn.click({ force: true, timeout: 10000 }).catch(() => {});
-        });
-        submitted = true;
-        clickedSomething = true;
+    // ── DEEP SANITIZATION & CLICK (Single Frame Bypass) ──
+    const shadowClicked = await page.evaluate(() => {
+      const nextKeywords = ['next', 'continue', 'submit', 'apply', 'send'];
+      const skipKeywords = ['cookie', 'settings', 'privacy', 'onetrust', 'reload', 'cancel', 'back', 'previous'];
+      const hostSelectors = ['button[data-qa="action-button"]', 'spl-button', 'sr-button', 'button[type="submit"]', 'button[class*="primary"]'];
+      
+      for (const sel of hostSelectors) {
+        const hosts = document.querySelectorAll(sel);
+        for (const host of hosts) {
+          if (host.offsetParent === null && !host.closest('[style*="display: none"]')) continue; // Skip invisible
+          const hostText = (host.textContent || '').trim().toLowerCase();
+          if (skipKeywords.some(sk => hostText.includes(sk))) continue;
+          
+          if (nextKeywords.some(kw => hostText.includes(kw)) || sel === 'button[data-qa="action-button"]') {
+            // DEEP SANITIZATION STEP
+            const customTags = 'spl-checkbox, sr-checkbox, spl-radio-group, sr-radio-group, spl-multiselect-autocomplete, sr-multiselect-autocomplete, spl-form-element, sr-form-element';
+            document.querySelectorAll(customTags).forEach(el => {
+              el.removeAttribute('required'); el.removeAttribute('aria-required'); el.required = false;
+              if (el.shadowRoot) {
+                el.shadowRoot.querySelectorAll('[required], [aria-required]').forEach(inner => {
+                  inner.removeAttribute('required'); inner.removeAttribute('aria-required'); inner.required = false;
+                });
+              }
+            });
 
-        // Wait for UI to update
-        await page.waitForTimeout(2000);
+            document.querySelectorAll('spl-checkbox, sr-checkbox').forEach(splCb => {
+              if (splCb.shadowRoot) {
+                const inp = splCb.shadowRoot.querySelector('input[type="checkbox"]');
+                if (inp && !inp.checked) {
+                  inp.checked = true; inp.removeAttribute('aria-invalid');
+                  inp.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                  splCb.checked = true; splCb.value = true;
+                }
+              }
+            });
+            
+            const invalidGroups = 'spl-radio-group, sr-radio-group, spl-multiselect-autocomplete, spl-form-element, sr-form-element';
+            document.querySelectorAll(invalidGroups).forEach(rg => {
+              rg.removeAttribute('aria-invalid');
+              if (rg.classList) rg.classList.remove('invalid', 'error', 'has-error');
+              if (rg.shadowRoot) {
+                 rg.shadowRoot.querySelectorAll('.error-message, [role="alert"]').forEach(e => e.remove());
+                 const innerTags = 'input[type="text"], input[type="radio"], input[type="checkbox"], spl-radio, sr-radio';
+                 rg.shadowRoot.querySelectorAll(innerTags).forEach(innerInp => {
+                   innerInp.removeAttribute('required'); innerInp.removeAttribute('aria-required'); innerInp.required = false;
+                   if (innerInp.shadowRoot) {
+                      innerInp.shadowRoot.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach(ii => {
+                        ii.removeAttribute('required'); ii.removeAttribute('aria-required'); ii.required = false;
+                      });
+                   }
+                 });
+              }
+            });
 
-        // Handle Greenhouse Security Code Verification
-        await handleSecurityCode(page, btn, job, supabase);
+            const form = host.closest('form');
+            if (form) form.setAttribute('novalidate', '');
+            
+            if (host.disabled) {
+              host.disabled = false; host.removeAttribute('disabled'); host.removeAttribute('aria-disabled');
+            }
 
-        break;
+            if (host.shadowRoot) {
+              const innerBtn = host.shadowRoot.querySelector('button');
+              if (innerBtn) {
+                innerBtn.formNoValidate = true; innerBtn.setAttribute('formnovalidate', '');
+                const innerForm = innerBtn.closest('form');
+                if (innerForm) innerForm.setAttribute('novalidate', '');
+                innerBtn.click();
+                return hostText;
+              }
+            }
+            
+            host.click();
+            return hostText;
+          }
+        }
       }
-    }
-    if (submitted) break;
+      return null;
+    }).catch(() => null);
 
-    // On a review step, wait once more for Submit to appear
-    if (isReviewStep) {
-      console.log(`  🔎 Review step detected — waiting 2s for submit button...`);
-      await page.waitForTimeout(2000);
+    let clickedSomething = false;
+
+    if (shadowClicked) {
+      console.log(`  🔘 Step ${stepCount}: Shadow DOM Deep-Sanitized & Clicked → "${shadowClicked}"`);
+      clickedSomething = true;
+      if (shadowClicked.includes('submit') || shadowClicked.includes('apply') || shadowClicked.includes('send')) {
+        submitted = true;
+        await page.waitForTimeout(2000);
+        // We still need a reference for handleSecurityCode if we can find it
+        const submitBtn = await page.$('button[data-qa="action-button"], button[type="submit"]').catch(()=>null);
+        await handleSecurityCode(page, submitBtn || page, job, supabase);
+      } else {
+        await page.waitForTimeout(2500);
+      }
+    } else {
+      // Fallback: standard Playwright selectors if Shadow DOM script found nothing
       for (const sel of SUBMIT_SELECTORS) {
         const btn = await page.$(sel).catch(() => null);
         if (btn && await btn.isVisible().catch(() => false)) {
-          console.log(`  🔘 Clicking SUBMIT on review step`);
-          await btn.click();
+          await page.screenshot({ path: 'debug_pre_submit.png', fullPage: true }).catch(() => {});
+          console.log(`  🔘 Step ${stepCount}: Clicking SUBMIT (Fallback)`);
+          await btn.scrollIntoViewIfNeeded().catch(() => {});
+          await btn.click({ timeout: 10000 }).catch(async () => { await btn.click({ force: true, timeout: 10000 }).catch(() => {}); });
           submitted = true;
           clickedSomething = true;
+          await page.waitForTimeout(2000);
+          await handleSecurityCode(page, btn, job, supabase);
           break;
         }
       }
-      if (submitted) break;
-    }
+      
+      if (!submitted && isReviewStep) {
+        console.log(`  🔎 Review step detected — waiting 2s for submit button...`);
+        await page.waitForTimeout(2000);
+        for (const sel of SUBMIT_SELECTORS) {
+          const btn = await page.$(sel).catch(() => null);
+          if (btn && await btn.isVisible().catch(() => false)) {
+            console.log(`  🔘 Clicking SUBMIT on review step`);
+            await btn.click();
+            submitted = true;
+            clickedSomething = true;
+            break;
+          }
+        }
+      }
 
-    // Try Next/Continue to advance to the next step
-    for (const sel of NEXT_SELECTORS) {
-      const btn = await page.$(sel).catch(() => null);
-      if (btn && await btn.isVisible().catch(() => false)) {
-        const btnText = await btn.textContent().catch(() => sel);
-        console.log(`  ➡️  Step ${stepCount}: Clicking NEXT → "${btnText.trim()}"`);
-        await btn.click();
-        clickedSomething = true;
-        await page.waitForTimeout(2500);
-        break;
+      if (!submitted) {
+        for (const sel of NEXT_SELECTORS) {
+          const btn = await page.$(sel).catch(() => null);
+          if (btn && await btn.isVisible().catch(() => false)) {
+            const btnText = await btn.textContent().catch(() => sel);
+            console.log(`  ➡️  Step ${stepCount}: Clicking NEXT → "${btnText.trim()}" (Fallback)`);
+            await btn.click();
+            clickedSomething = true;
+            await page.waitForTimeout(2500);
+            break;
+          }
+        }
       }
     }
 

@@ -1,6 +1,11 @@
 /**
  * agents/form-filler.js — Form Field Filling Agent
  * 
+ * ⚠️  DEPRECATED: This file is NOT imported by browser-apply.js.
+ * The main loop uses its own inline copy of fillDynamicFields (with Shadow DOM support).
+ * This file is kept for reference only. Do NOT add new features here.
+ * All form-filling logic should be modified in browser-apply.js directly.
+ * 
  * Handles all form field detection and filling:
  * - fillBaseFields: name, email, phone, resume upload, socials, EEO
  * - fillDynamicFields: AI-powered custom field filling (with static cache)
@@ -26,13 +31,8 @@ function cssEscape(s) {
 }
 
 // ── Static Answer Cache ──────────────────────────────────────────────────────
-function tryStaticAnswer(labelText) {
-  const label = (labelText || '').replace(/[*●•️]+/g, '').trim().toLowerCase();
-  for (const rule of STATIC_ANSWERS) {
-    if (rule.patterns.some(p => p.test(label))) {
-      return { value: rule.value, type: rule.type };
-    }
-  }
+function tryStaticAnswer(label) {
+  // Static filling disabled as per user request (relying on LLM)
   return null;
 }
 
@@ -317,7 +317,12 @@ export async function fillDynamicFields(page) {
         labelText = Array.from(el.labels).map(l => l.innerText).join(' ');
       } else {
         const parent = el.closest('.field, .form-group, div');
-        if (parent) labelText = parent.innerText.split('\\n')[0];
+        if (parent) labelText = parent.innerText.split('\n')[0];
+      }
+
+      // Skip Twitter / X fields as per user preference
+      if (/twitter|x\.com/i.test(labelText) || /twitter|x\.com/i.test(name)) {
+        continue;
       }
 
       let options = [];
@@ -375,6 +380,14 @@ export async function fillDynamicFields(page) {
     for (const el of comboboxes) {
       const id = el.id || '';
       if (!id) continue;
+      
+      // Skip Twitter / X fields as per user preference
+      const name = (el.name || el.id || '').toLowerCase();
+      const label = (document.querySelector(`label[for="${id}"]`)?.innerText || '').toLowerCase();
+      if (/twitter|x\.com/i.test(label) || /twitter|x\.com/i.test(name)) {
+        continue;
+      }
+      
       if (results.some(r => r.id === id)) continue;
 
       let labelText = '';
@@ -464,13 +477,16 @@ export async function fillDynamicFields(page) {
           await el.focus().catch(() => {});
           await el.click({ clickCount: 3 }).catch(() => {});
           await page.waitForTimeout(100);
+          
           const isFocusedStatic = await page.evaluate((el) => document.activeElement === el, el).catch(() => false);
-          if (!isFocusedStatic) {
-            await el.click({ force: true }).catch(() => {});
-            await page.waitForTimeout(100);
-          }
+          if (!isFocusedStatic) await el.focus().catch(() => {});
+
+          // Explicitly click to open custom dropdowns (like spl-select)
+          await el.click({ force: true }).catch(() => {});
+          await page.waitForTimeout(200);
+
           await page.keyboard.type(q.staticValue, { delay: 10 });
-          await page.waitForTimeout(900);
+          await page.waitForTimeout(1200); // Wait for dropdown
 
           const SUGGESTION_SELECTORS = [
             '[role="option"]',
@@ -479,6 +495,8 @@ export async function fillDynamicFields(page) {
             'div[class*="_option_"]:not([class*="_container_"]):not([class*="_yesno_"])',
             '.autocomplete-suggestion',
             'ul.suggestions li',
+            'spl-dropdown-item',
+            'sr-autocomplete li'
           ];
 
           let clicked = false;
@@ -576,13 +594,13 @@ CRITICAL RULES:
 - For multi-select fields (label contains "location(s)", "select all", "languages you speak"): return comma-separated values BUT limit to AT MOST 2-3 relevant choices. For LOCATION multi-select: prefer "Remote" if listed. Add at most 1 more specific city/country option relevant to Germany.
 - For 'radio'/'checkbox': your 'value' must exactly match the option's 'value' field (NOT the label).
 - Visa/Sponsorship: Answer "No" or the closest option meaning no sponsorship needed.
-- Notice Period: "1 month", "4 weeks", or "Immediate" depending on options.
+- Notice Period: "Immediately", "Immediate", or "Available immediately" depending on options. ALWAYS prefer immediate availability.
 - Salary: "55000" (or match the format shown in the form).
 - Disability/Veteran/Gender: Always "Decline to answer", "Prefer not to say", or "No".
 - Yes/No questions: answer "Yes" or "No" exactly unless options are different.
 - Certification/consent questions ("I certify...", "I understand...", "I agree..."): answer "Yes".
 - LinkedIn/GitHub links: ALWAYS include https://. LinkedIn → ${PROFILE.linkedin}, GitHub → ${PROFILE.github}.
-- Location questions: pick "Remote" if available. Otherwise pick the single option closest to Germany/Munich.
+- Location questions: pick "Remote" if available. Otherwise pick the single option closest to Germany/Berlin.
 - "How did you hear": pick "LinkedIn" or the closest match from the options list.
 - DO NOT invent values not in the options list for select/reactselect fields.
 - DO NOT use actual newlines inside JSON strings. Use literal \\n if needed.
@@ -620,6 +638,11 @@ CRITICAL RULES:
 
     for (const ans of data.answers) {
       try {
+        if (!ans.value && ans.type !== 'checkbox') continue;
+        
+        // Skip Twitter / X fields completely to avoid triggering validation
+        if (/twitter|x\.com/i.test(ans.name)) continue;
+
         const selector = ans.name.includes('question_') ? `[id="${ans.name}"], [name="${ans.name}"]` : `[name="${ans.name}"], [id="${ans.name}"]`;
         if (ans.type === 'radio' || ans.type === 'checkbox') {
           const valueSuffix = `[value="${ans.value}"]`;
@@ -748,8 +771,32 @@ CRITICAL RULES:
                 await page.waitForTimeout(50);
                 const isFocused2 = await page.evaluate((el) => document.activeElement === el, el).catch(() => false);
                 if (!isFocused2) await el.focus().catch(() => {});
+                
+                // Explicitly click to open custom dropdowns (like spl-select)
+                await el.click({ force: true }).catch(() => {});
+                await page.waitForTimeout(200);
+
                 await page.keyboard.type(ans.value, { delay: 10 });
-                await page.waitForTimeout(100);
+                await page.waitForTimeout(800); // Wait for dropdown
+                
+                // Try to click an autocomplete dropdown option if it appeared (using Playwright to pierce shadow DOMs)
+                const opts = await page.$$('sr-autocomplete li, [role="option"], .autocomplete-option, .dropdown-menu li, li[data-value], .select__option, .menu-item, spl-dropdown-item').catch(() => []);
+                if (opts && opts.length > 0) {
+                  let bestMatch = null;
+                  const targetLower = ans.value.toLowerCase();
+                  for (const o of opts) {
+                    if (!await o.isVisible().catch(() => false)) continue;
+                    const text = await o.textContent().catch(() => '');
+                    if (text.trim().toLowerCase() === targetLower) { bestMatch = o; break; }
+                    if (text.trim().toLowerCase().includes(targetLower)) { bestMatch = o; }
+                  }
+                  
+                  if (bestMatch) {
+                    await bestMatch.click({ force: true }).catch(() => {});
+                    console.log(`    ↳ Picked dropdown option for ${ans.value}`);
+                    await page.waitForTimeout(200);
+                  }
+                }
               }
             }
           }

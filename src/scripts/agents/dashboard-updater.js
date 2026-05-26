@@ -130,13 +130,15 @@ export async function recordFailure(job, supabase, opts = {}) {
 
 // ── Update Job Status ──────────────────────────────────────────────────────────
 export async function updateJobStatus(jobId, status, supabase, extra = {}) {
-  await supabase.from('jobs').update({ status, ...extra }).eq('id', jobId).catch(() => {});
+  // Strip unknown columns (notes doesn't exist in the jobs table)
+  const { notes, ...safeExtra } = extra;
+  try { await supabase.from('jobs').update({ status, ...safeExtra }).eq('id', jobId); } catch(e) {}
 }
 
 // ── Track Cold Email ──────────────────────────────────────────────────────────
 export async function trackColdEmail(job, supabase, activeResumePath) {
   try {
-    const { sendColdEmail } = await import('../services/cold-email.js');
+    const { sendColdEmail } = await import('../../services/cold-email.js');
     const cvText = PROFILE_YAML;
     const emailResult = await sendColdEmail(job, null, cvText, activeResumePath);
 
