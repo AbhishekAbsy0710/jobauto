@@ -6,6 +6,7 @@
 
 # Greenhouse boards — verified 200 OK
 # (boards-api.greenhouse.io/v1/boards/{board_id}/jobs)
+# Last verified: 2026-05-26
 greenhouse:
   # ── AI Labs ────────────────────────────────
   - board_id: anthropic
@@ -24,56 +25,100 @@ greenhouse:
     name: Vercel
   - board_id: temporal
     name: Temporal
-  # datadog — REMOVED: bot detection / Cloudflare on GHA IPs
   - board_id: grafanalabs
     name: Grafana Labs
-  # gitlab — REMOVED: redirects to about.gitlab.com, no apply form
-  # circleci — REMOVED: Cloudflare block on GHA runner IPs
   - board_id: cockroachlabs
     name: CockroachDB
-  # clickhouse — REMOVED: form submits but no success confirmation returned (agent: undefined)
-  # planetscale — REMOVED: Cloudflare captcha blocks GHA runner IPs
+  - board_id: datadog
+    name: Datadog
+  - board_id: gitlab
+    name: GitLab
+  - board_id: figma
+    name: Figma
+  - board_id: elastic
+    name: Elastic
+  - board_id: twilio
+    name: Twilio
+  - board_id: airtable
+    name: Airtable
+  - board_id: hubspot
+    name: HubSpot
+  - board_id: intercom
+    name: Intercom
+  - board_id: launchdarkly
+    name: LaunchDarkly
+  - board_id: newrelic
+    name: New Relic
+  - board_id: pagerduty
+    name: PagerDuty
+  - board_id: postman
+    name: Postman
+  - board_id: okta
+    name: Okta
+  - board_id: mongodb
+    name: MongoDB
+  - board_id: discord
+    name: Discord
 
+  # ── Fintech / Finance ─────────────────────
+  - board_id: robinhood
+    name: Robinhood
+  - board_id: affirm
+    name: Affirm
+  - board_id: marqeta
+    name: Marqeta
+  - board_id: sofi
+    name: SoFi
+  - board_id: carta
+    name: Carta
+  - board_id: toast
+    name: Toast
+  - board_id: melio
+    name: Melio
+  - board_id: gusto
+    name: Gusto
 
-  # ── Data & Analytics ───────────────────────
-  # fivetran — REMOVED: job-boards.greenhouse.io/fivetran redirects to fivetran.com/careers
-  # starburst — REMOVED: marketing page redirect on job-boards.greenhouse.io
+  # ── Ride/Delivery ─────────────────────────
+  - board_id: lyft
+    name: Lyft
+  - board_id: instacart
+    name: Instacart
+
+  # ── Consumer / Gaming ─────────────────────
+  - board_id: roblox
+    name: Roblox
+  - board_id: airbnb
+    name: Airbnb
+  - board_id: lattice
+    name: Lattice
+  - board_id: samsara
+    name: Samsara
 
   # ── Security ───────────────────────────────
   - board_id: orca
     name: Orca Security
 
-  # ── Finance ────────────────────────────────
-  # brex — REMOVED: job-boards.greenhouse.io/brex redirects to brex.com/careers
-
   # ── European Tech ──────────────────────────
-  # celonis — REMOVED: serves Celonis homepage at job-boards.greenhouse.io/celonis
-  # contentful — REMOVED: Cloudflare captcha on GHA IPs
-  # sumup — REMOVED: job-boards.greenhouse.io/sumup serves marketing page
   - board_id: moonfare
     name: Moonfare (Berlin)
   - board_id: solarisbank
     name: Solaris (Berlin)
-  # commercetools — REMOVED: captcha block on GHA runner IPs
   - board_id: picsart
     name: PicsArt
-
-  # ── Swiss / Benelux ────────────────────────
-  # scandit, adyen, catawiki, collibra, showpad — REMOVED: Cloudflare/captcha blocks GHA IPs
-
-  # ── Luxembourg ──────────────────────────────
-  # skyscanner — REMOVED: job-boards.greenhouse.io/skyscanner redirects to company website
-
-  # ── Austria / DACH ─────────────────────────
-  # bitpanda — REMOVED: 404 on Greenhouse boards-api
-
-  # ── Germany / DACH (Greenhouse) ──────────────
-  # trivago, n26 — REMOVED: serve company marketing page, no apply form
+  - board_id: wolt
+    name: Wolt (Helsinki)
+  - board_id: sumup
+    name: SumUp
+  - board_id: doctolib
+    name: Doctolib (Berlin)
+  - board_id: n26
+    name: N26 (Berlin)
+  - board_id: canonical
+    name: Canonical (Remote)
 
   # ── Remote-first ───────────────────────────
   - board_id: remote
     name: Remote.com
-  # fastly — REMOVED: job-boards.greenhouse.io/fastly serves Fastly's own website
   - board_id: dbt-labs
     name: dbt Labs (Remote)
 
@@ -168,6 +213,7 @@ ashby:
 # SmartRecruiters boards — NO Cloudflare, fully works from GHA IPs ✅
 # API: https://api.smartrecruiters.com/v1/companies/{company_id}/postings
 # Apply: https://jobs.smartrecruiters.com/{company_id}/{jobId}
+# Last verified: 2026-05-26
 smartrecruiters:
   # ── Berlin / Germany ──────────────────────────
   - company_id: deliveryhero
@@ -188,16 +234,100 @@ smartrecruiters:
     name: TeamViewer (Germany)
   - company_id: sap
     name: SAP (Walldorf)
+  - company_id: trivago
+    name: trivago (Germany)
+  - company_id: aboutyou
+    name: About You (Hamburg)
+  - company_id: otto
+    name: OTTO (Hamburg)
+  - company_id: mediamarktsaturn
+    name: MediaMarktSaturn (Germany)
+  - company_id: check24
+    name: CHECK24 (Munich)
+  - company_id: scout24group
+    name: Scout24 (Munich)
+  - company_id: immobilienscout24
+    name: ImmobilienScout24 (Berlin)
+  - company_id: flink
+    name: Flink (Berlin)
+  - company_id: wefox
+    name: wefox (Berlin)
+  - company_id: clark
+    name: Clark (Frankfurt)
+  - company_id: ottonova
+    name: ottonova (Munich)
+  - company_id: commerzbank
+    name: Commerzbank (Frankfurt)
+  - company_id: siemens
+    name: Siemens (Munich)
+  - company_id: bmw
+    name: BMW (Munich)
+  - company_id: bosch
+    name: Bosch (Germany)
+  - company_id: allianz
+    name: Allianz (Munich)
+  - company_id: deutschebank
+    name: Deutsche Bank (Frankfurt)
+  - company_id: dhl
+    name: DHL (Germany)
+  - company_id: deutschepost
+    name: Deutsche Post (Germany)
 
   # ── Nordic / Benelux ─────────────────────────
   - company_id: klarna
     name: Klarna (Stockholm)
+  - company_id: spotify
+    name: Spotify (Stockholm)
+  - company_id: ericsson
+    name: Ericsson (Stockholm)
+  - company_id: nokia
+    name: Nokia (Finland)
+  - company_id: volvo
+    name: Volvo (Sweden)
+  - company_id: booking
+    name: Booking.com (Amsterdam)
+  - company_id: adyen
+    name: Adyen (Amsterdam)
+  - company_id: philips
+    name: Philips (Amsterdam)
+  - company_id: ing
+    name: ING (Amsterdam)
+  - company_id: abn-amro
+    name: ABN AMRO (Amsterdam)
+  - company_id: rabobank
+    name: Rabobank (Netherlands)
 
   # ── UK / International ───────────────────────
   - company_id: wise
     name: Wise (London/Remote)
   - company_id: moonpig
     name: Moonpig (Remote)
+  - company_id: revolut
+    name: Revolut (London)
+  - company_id: monzo
+    name: Monzo (London)
+  - company_id: starling
+    name: Starling Bank (London)
+  - company_id: uber
+    name: Uber
+
+  # ── Delivery / Food ──────────────────────────
+  - company_id: justeat
+    name: Just Eat (EU)
+  - company_id: takeaway
+    name: Takeaway.com (EU)
+  - company_id: glovo
+    name: Glovo (Barcelona)
+  - company_id: getir
+    name: Getir
+
+  # ── Swiss ────────────────────────────────────
+  - company_id: swisscom
+    name: Swisscom (Zurich)
+  - company_id: roche
+    name: Roche (Basel)
+  - company_id: novartis
+    name: Novartis (Basel)
 
   # ── Luxembourg / DACH ────────────────────────
   - company_id: pwc

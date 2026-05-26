@@ -170,20 +170,22 @@ async function upsertJob(job, evaluation) {
   // EXCEPTION: Some ATS platforms block headless Chrome on GHA datacenter IPs.
   // Route them to manual_queue at scrape time to avoid wasting browser time.
   //
-  //   - greenhouse: job-boards.greenhouse.io behind Cloudflare — GHA IPs blocked
   //   - ashby: all companies trigger hCaptcha on form submit
   //   - lever: all companies trigger hCaptcha on form submit
-  //   - smartrecruiters: oneclick-ui SPA blocks headless Chrome — blank page, 0 inputs
-  const BLOCKED_PLATFORMS = ['ashby', 'lever', 'greenhouse', 'smartrecruiters'];
+  //
+  // NOTE: Greenhouse (job-boards.greenhouse.io) and SmartRecruiters work fine
+  // from GHA IPs — DO NOT block them. Only the company career site URLs
+  // (e.g. sumup.com/careers) have Cloudflare, not the canonical Greenhouse URLs.
+  const BLOCKED_PLATFORMS = ['ashby', 'lever'];
   // Companies whose apply pages block GHA IPs (Cloudflare bot protection on custom career sites)
   const PAGE_LOAD_BLOCKED_COMPANIES = ['bitpanda', 'showpad', 'cockroach labs', 'cockroachlabs'];
   const platformLower = (job.platform || '').toLowerCase();
   const companyLower = (job.company || '').toLowerCase();
   // Also check apply_link directly — some jobs have platform='unknown' but link to blocked ATS
   const applyLinkLower = (job.apply_link || '').toLowerCase();
-  const isGreenhouseLink = applyLinkLower.includes('greenhouse.io') || applyLinkLower.includes('job-boards.greenhouse');
-  const isSRLink = applyLinkLower.includes('smartrecruiters.com');
-  const status = BLOCKED_PLATFORMS.includes(platformLower) || PAGE_LOAD_BLOCKED_COMPANIES.some(c => companyLower.includes(c)) || isGreenhouseLink || isSRLink
+  const isAshbyLink = applyLinkLower.includes('ashbyhq.com');
+  const isLeverLink = applyLinkLower.includes('lever.co/') && !applyLinkLower.includes('api.lever.co');
+  const status = BLOCKED_PLATFORMS.includes(platformLower) || PAGE_LOAD_BLOCKED_COMPANIES.some(c => companyLower.includes(c)) || isAshbyLink || isLeverLink
     ? 'manual_queue'                          // Headless-blocked → manual
     : (evaluation?.action || 'new');          // No evaluation (rate-limited) → stay 'new' until evaluated
 
