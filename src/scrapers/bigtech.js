@@ -94,8 +94,17 @@ async function scrapeAmazon() {
 // Uses NVIDIAExternalCareerSite board
 // ============================================
 const NVIDIA_EU_LOCATIONS = [
-  'Germany', 'Netherlands', 'UK', 'Finland', 'Switzerland',
-  'France', 'Sweden', 'Ireland', 'Austria', 'Poland',
+  // Country codes NVIDIA uses in location text
+  'DE,', 'NL,', 'GB,', 'FI,', 'CH,', 'FR,', 'SE,', 'IE,', 'AT,', 'PL,',
+  'CZ,', 'DK,', 'IT,', 'ES,', 'BE,', 'LU,',
+  // Full names (for multi-location entries)
+  'germany', 'munich', 'berlin', 'frankfurt',
+  'netherlands', 'amsterdam', 'eindhoven',
+  'finland', 'helsinki', 'switzerland', 'zurich',
+  'france', 'paris', 'sweden', 'stockholm',
+  'united kingdom', 'london', 'uk,', 'ireland', 'dublin',
+  'austria', 'vienna', 'poland', 'warsaw',
+  'remote', 'europe', 'emea',
 ];
 
 async function scrapeNVIDIA() {
@@ -134,11 +143,14 @@ async function scrapeNVIDIA() {
 
       for (const job of postings) {
         const titleLower = (job.title || '').toLowerCase();
-        const locText = (job.locationsText || '').toLowerCase();
+        const locText = (job.locationsText || '');
+        const locLower = locText.toLowerCase();
         const isTech = TECH_TITLE_KEYWORDS.some(kw => titleLower.includes(kw));
-        const isEU = NVIDIA_EU_LOCATIONS.some(loc => locText.toLowerCase().includes(loc.toLowerCase()));
+        // Accept if EU location found, or if it's a multi-location posting (e.g. "3 Locations")
+        const isEU = NVIDIA_EU_LOCATIONS.some(loc => locLower.includes(loc.toLowerCase()));
+        const isMultiLoc = /\\d+ locations/i.test(locText);
 
-        if (!isTech || !isEU) continue;
+        if (!isTech || (!isEU && !isMultiLoc)) continue;
 
         const applyUrl = `https://nvidia.wd5.myworkdayjobs.com${job.externalPath || ''}`;
 
