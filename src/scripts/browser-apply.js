@@ -1469,7 +1469,7 @@ async function main() {
 
     try {
       // Permanent block list — companies that have rate-limited or banned us
-      const BLOCKED_COMPANIES = ['supabase'];
+      const BLOCKED_COMPANIES = ['supabase', 'openai', 'sentry', 'elevenlabs', 'railway', 'delivery hero'];
       const companyKey = (job.company || '').toLowerCase().trim();
       if (BLOCKED_COMPANIES.some(bc => companyKey.includes(bc))) {
         console.log(`  🚫 Skipping — ${job.company} is permanently blocked (apply limits)`);

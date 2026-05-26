@@ -240,7 +240,7 @@ export const SKIP_KEYWORDS = [
 ];
 
 // ── Pipeline Constants ────────────────────────────────────────────────────────
-export const MAX_JOBS_PER_RUN = 5;
+export const MAX_JOBS_PER_RUN = 20;
 export const MAX_PREFILTER_PER_COMPANY = 3;
 export const MAX_PER_COMPANY = 2;
 export const MAX_STEPS = 10;
