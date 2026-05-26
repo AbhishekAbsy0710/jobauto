@@ -45,105 +45,178 @@ export async function callGemini(systemPrompt, userPrompt) {
   }
 }
 
+// ── Provider configs ────────────────────────────────────────────────────────────
+const PROVIDERS = {
+  gemini: {
+    name: 'Gemini',
+    call: async (systemPrompt, userPrompt, _model) => {
+      // Gemini uses its own REST format (not OpenAI-compatible)
+      return await callGemini(systemPrompt, userPrompt);
+    },
+  },
+  groq: {
+    name: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
+    keyEnv: 'GROQ_API_KEY',
+  },
+  cerebras: {
+    name: 'Cerebras',
+    baseUrl: 'https://api.cerebras.ai/v1/chat/completions',
+    keyEnv: 'CEREBRAS_API_KEY',
+  },
+  sambanova: {
+    name: 'SambaNova',
+    baseUrl: 'https://api.sambanova.ai/v1/chat/completions',
+    keyEnv: 'SAMBANOVA_API_KEY',
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+    keyEnv: 'OPENROUTER_API_KEY',
+  },
+};
+
 // Ordered fallback chain — each model cascades to the NEXT one
+// Format: { provider, model, label, quota }
 const MODEL_CASCADE = [
-  '__gemini__',                                       // Gemini 2.0 Flash — primary, best quality
-  'llama-3.3-70b-versatile',                         // 100k TPD — Groq fallback, high quality
-  'meta-llama/llama-4-scout-17b-16e-instruct',       // 500k TPD — 17b, very capable
-  'mixtral-8x7b-32768',                              // 500k TPD — 47B MoE
-  'llama-3.1-8b-instant',                             // 500k TPD — last resort
+  { provider: 'gemini',    model: 'gemini-2.0-flash',                           label: 'Gemini 2.0 Flash',       quota: '1500 req/day' },
+  { provider: 'groq',      model: 'llama-3.3-70b-versatile',                    label: 'Groq Llama 3.3 70b',     quota: '100k TPD' },
+  { provider: 'cerebras',  model: 'llama-3.3-70b',                              label: 'Cerebras Llama 3.3 70b', quota: '1M tok/day' },
+  { provider: 'groq',      model: 'meta-llama/llama-4-scout-17b-16e-instruct',  label: 'Groq Scout 17b',         quota: '500k TPD' },
+  { provider: 'sambanova', model: 'Meta-Llama-3.3-70B-Instruct',                label: 'SambaNova Llama 70b',    quota: '$5 free' },
+  { provider: 'groq',      model: 'mixtral-8x7b-32768',                         label: 'Groq Mixtral 8x7b',     quota: '500k TPD' },
+  { provider: 'cerebras',  model: 'llama-3.1-8b',                               label: 'Cerebras Llama 8b',      quota: '1M tok/day' },
+  { provider: 'openrouter', model: 'meta-llama/llama-4-scout:free',              label: 'OpenRouter Scout',       quota: '50 req/day' },
+  { provider: 'groq',      model: 'llama-3.1-8b-instant',                       label: 'Groq Llama 8b',         quota: '500k TPD' },
+  { provider: 'openrouter', model: 'qwen/qwen3-235b:free',                      label: 'OpenRouter Qwen3',       quota: '50 req/day' },
 ];
 
-function getNextModel(currentModel) {
-  const idx = MODEL_CASCADE.indexOf(currentModel);
-  if (idx === -1 || idx >= MODEL_CASCADE.length - 1) return null;
-  return MODEL_CASCADE[idx + 1];
+function getNextModelIndex(currentIdx) {
+  return currentIdx + 1 < MODEL_CASCADE.length ? currentIdx + 1 : -1;
 }
 
-export async function callGroq(systemPrompt, userPrompt, model = '__gemini__', _depth = 0) {
-  // Recursion guard — prevent infinite loops
+// Generic OpenAI-compatible API call
+async function callOpenAICompatible(provider, model, systemPrompt, userPrompt) {
+  const config = PROVIDERS[provider];
+  if (!config || !config.baseUrl) return null;
+  
+  const apiKey = process.env[config.keyEnv];
+  if (!apiKey) return null; // Skip if no key configured
+  
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${apiKey}`,
+  };
+  // OpenRouter requires extra headers
+  if (provider === 'openrouter') {
+    headers['HTTP-Referer'] = 'https://github.com/AbhishekAbsy0710/jobauto';
+    headers['X-Title'] = 'JobAuto';
+  }
+
+  const res = await fetch(config.baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.1,
+      max_tokens: 1500,
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    console.log(`  ⚠️ ${config.name} API Error (${model}): ${res.status} - ${errText.substring(0, 200)}`);
+    return { error: true, status: res.status, errText };
+  }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content || '{}';
+  console.log(`  ✅ ${config.name} ${model.split('/').pop()} responded (${content.length} chars)`);
+  return { content };
+}
+
+export async function callGroq(systemPrompt, userPrompt, model = null, _depth = 0) {
+  // Recursion guard
   if (_depth > MODEL_CASCADE.length + 2) {
     console.log(`  ⚠️ Max cascade depth reached — returning empty`);
     return '{}';
   }
-  if (!process.env.GROQ_API_KEY) return '{}';
 
-  // If we've cascaded all the way to Gemini, use it directly
-  if (model === '__gemini__') {
-    console.log(`  🔄 All Groq models exhausted → trying Gemini 2.0 Flash...`);
-    return await callGemini(systemPrompt, userPrompt);
-  }
-
-  try {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.1,
-        max_tokens: 1500,
-        response_format: { type: 'json_object' },
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      console.log(`  ⚠️ Groq API Error (${model}): ${res.status} - ${errText.substring(0,200)}`);
-      
-      // Model decommissioned or not found — skip to NEXT model in cascade (never loop back!)
-      if (res.status === 400 && (errText.includes('decommissioned') || errText.includes('does not exist'))) {
-        const next = getNextModel(model);
-        if (next) {
-          console.log(`  🔄 Model ${model} decommissioned → trying ${next}...`);
-          return await callGroq(systemPrompt, userPrompt, next, _depth + 1);
-        }
-        return '{}';
-      }
-
-      if (res.status === 413) {
-        const next = getNextModel(model);
-        if (next) {
-          console.log(`  🔄 Request too large for ${model} → trying ${next}...`);
-          return await callGroq(systemPrompt, userPrompt, next, _depth + 1);
-        }
-        return '{}';
-      }
-      
-      // TPD (daily token limit) — cascade to next model
-      if (res.status === 429 && errText.includes('TPD')) {
-        const next = getNextModel(model);
-        if (next) {
-          const nextLabel = next === '__gemini__' ? 'Gemini 2.0 Flash' : next;
-          console.log(`  🔄 ${model} TPD limit → trying ${nextLabel}...`);
-          return await callGroq(systemPrompt, userPrompt, next, _depth + 1);
-        }
-        console.log(`  ⚠️ All AI models hit daily limit. Applying with base resume...`);
-        return '{}';
-      }
-      
-      // TPM (per-minute token limit) — retry with backoff
-      if (res.status === 429 && errText.includes('TPM')) {
-        const waitMatch = errText.match(/try again in ([\d\.]+)s/);
-        const waitTime = waitMatch ? (parseFloat(waitMatch[1]) * 1000) + 1000 : 15000;
-        console.log(`  ⏳ TPM limit hit. Waiting ${Math.round(waitTime/1000)}s before retry...`);
-        await new Promise(r => setTimeout(r, waitTime));
-        return await callGroq(systemPrompt, userPrompt, model, _depth + 1);
-      }
-      
-      return '{}';
+  // Find starting index in cascade
+  let startIdx = 0;
+  if (model) {
+    // Legacy callers pass model string — find it in the cascade
+    if (model === '__gemini__') {
+      startIdx = 0; // Gemini is first
+    } else {
+      const idx = MODEL_CASCADE.findIndex(m => m.model === model);
+      if (idx !== -1) startIdx = idx;
     }
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || '{}';
-  } catch (networkErr) {
-    console.log(`  ⚠️ Groq network error: ${networkErr.message}`);
-    return '{}';
   }
+
+  // Walk the cascade from startIdx
+  for (let i = startIdx; i < MODEL_CASCADE.length; i++) {
+    const entry = MODEL_CASCADE[i];
+    
+    try {
+      if (entry.provider === 'gemini') {
+        const result = await callGemini(systemPrompt, userPrompt);
+        if (result && result !== '{}') return result;
+        console.log(`  🔄 ${entry.label} failed → trying next...`);
+        continue;
+      }
+
+      const result = await callOpenAICompatible(entry.provider, entry.model, systemPrompt, userPrompt);
+      
+      if (!result) {
+        // No API key for this provider — skip silently
+        continue;
+      }
+      
+      if (result.error) {
+        // Rate limit — cascade to next
+        if (result.status === 429) {
+          const nextIdx = getNextModelIndex(i);
+          if (nextIdx !== -1) {
+            // Check if TPM (per-minute) — retry same model with backoff
+            if (result.errText?.includes('TPM')) {
+              const waitMatch = result.errText.match(/try again in ([\d\.]+)s/);
+              const waitTime = waitMatch ? (parseFloat(waitMatch[1]) * 1000) + 1000 : 15000;
+              console.log(`  ⏳ TPM limit hit. Waiting ${Math.round(waitTime/1000)}s before retry...`);
+              await new Promise(r => setTimeout(r, waitTime));
+              // Retry same model
+              const retry = await callOpenAICompatible(entry.provider, entry.model, systemPrompt, userPrompt);
+              if (retry && !retry.error) return retry.content;
+            }
+            console.log(`  🔄 ${entry.label} rate limited → trying ${MODEL_CASCADE[nextIdx].label}...`);
+          }
+          continue;
+        }
+        // Model not found / decommissioned — skip
+        if (result.status === 400 || result.status === 404) {
+          continue;
+        }
+        // Request too large — skip
+        if (result.status === 413) {
+          continue;
+        }
+        continue;
+      }
+
+      return result.content;
+    } catch (err) {
+      console.log(`  ⚠️ ${entry.label} network error: ${err.message}`);
+      continue;
+    }
+  }
+
+  console.log(`  ⚠️ All AI models exhausted. Applying with base resume...`);
+  return '{}';
 }
 
 // ── Self-Healing Agent Loop ────────────────────────────────────────────────────
