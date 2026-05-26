@@ -1468,8 +1468,18 @@ async function main() {
     console.log(`\n━━━ ${job.title} @ ${job.company} ━━━`);
 
     try {
-      // Permanent block list — companies that have rate-limited or banned us
-      const BLOCKED_COMPANIES = ['supabase', 'openai', 'sentry', 'elevenlabs', 'railway', 'delivery hero'];
+      // Platform-level block — Ashby ATS always shows captchas
+      const jobUrl = (job.url || '').toLowerCase();
+      if (jobUrl.includes('ashbyhq.com')) {
+        console.log(`  🚫 Skipping — Ashby platform blocked (captcha on every submit)`);
+        results.skipped++;
+        await page.close().catch(() => {});
+        try { await supabase.from('jobs').update({ status: 'archived' }).eq('id', job.id); } catch(e) {}
+        continue;
+      }
+
+      // Permanent block list — companies with apply limits or persistent failures
+      const BLOCKED_COMPANIES = ['supabase', 'openai', 'braintrust', 'delivery hero'];
       const companyKey = (job.company || '').toLowerCase().trim();
       if (BLOCKED_COMPANIES.some(bc => companyKey.includes(bc))) {
         console.log(`  🚫 Skipping — ${job.company} is permanently blocked (apply limits)`);
