@@ -21,6 +21,9 @@ import { scrapePersonio } from '../scrapers/personio.js';
 import { scrapeTeamTailor } from '../scrapers/teamtailor.js';
 import { scrapeRecruitee } from '../scrapers/recruitee.js';
 import { scrapeWTTJ } from '../scrapers/welcometothejungle.js';
+import { scrapeRemotive } from '../scrapers/remotive.js';
+import { scrapeHimalayas } from '../scrapers/himalayas.js';
+import { scrapeJobicy } from '../scrapers/jobicy.js';
 import { loadConfig, loadPortals } from '../config.js';
 
 const supabase = createClient(
@@ -313,6 +316,13 @@ Deal breakers: ${dealBreakers.join(', ')}
     scrapeWTTJ().catch(e => { console.log(`  ⚠️  WTTJ: ${e.message}`); return []; }),
   ]);
 
+  // ── Batch 4: Open remote job APIs ──────────────────────────────────────────
+  const [remotiveRes, himalayasRes, jobicyRes] = await Promise.allSettled([
+    scrapeRemotive().catch(e => { console.log(`  ⚠️  Remotive: ${e.message}`); return []; }),
+    scrapeHimalayas().catch(e => { console.log(`  ⚠️  Himalayas: ${e.message}`); return []; }),
+    scrapeJobicy().catch(e => { console.log(`  ⚠️  Jobicy: ${e.message}`); return []; }),
+  ]);
+
   const allJobs = [
     ...(arbeitnowRes.status === 'fulfilled' ? arbeitnowRes.value : []),
     ...(remoteOkRes.status === 'fulfilled' ? remoteOkRes.value : []),
@@ -329,6 +339,9 @@ Deal breakers: ${dealBreakers.join(', ')}
     ...(glassdoorRes.status === 'fulfilled' ? glassdoorRes.value : []),
     ...(xingRes.status === 'fulfilled' ? xingRes.value : []),
     ...(wttjRes.status === 'fulfilled' ? wttjRes.value : []),
+    ...(remotiveRes.status === 'fulfilled' ? remotiveRes.value : []),
+    ...(himalayasRes.status === 'fulfilled' ? himalayasRes.value : []),
+    ...(jobicyRes.status === 'fulfilled' ? jobicyRes.value : []),
   ];
 
   console.log(`\n📋 Total scraped: ${allJobs.length} jobs — now evaluating & upserting...\n`);
