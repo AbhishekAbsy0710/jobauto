@@ -1480,7 +1480,8 @@ async function main() {
       }
 
       // Permanent block list — companies with apply limits or persistent failures
-      const BLOCKED_COMPANIES = ['supabase', 'openai', 'braintrust', 'delivery hero'];
+      // NOTE: Delivery Hero uses SmartRecruiters which works fine — removed from block list
+      const BLOCKED_COMPANIES = ['supabase', 'openai', 'braintrust'];
       const companyKey = (job.company || '').toLowerCase().trim();
       if (BLOCKED_COMPANIES.some(bc => companyKey.includes(bc))) {
         console.log(`  🚫 Skipping — ${job.company} is permanently blocked (apply limits)`);

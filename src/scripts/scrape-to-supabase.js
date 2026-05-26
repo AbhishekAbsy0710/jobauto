@@ -176,11 +176,11 @@ async function upsertJob(job, evaluation) {
   //
   //   - ashby: all companies trigger hCaptcha on form submit
   //   - lever: all companies trigger hCaptcha on form submit
+  //   - greenhouse: Cloudflare bot protection on apply pages blocks form submission
+  //     (scraping via boards-api works fine — only browser apply is blocked)
   //
-  // NOTE: Greenhouse (job-boards.greenhouse.io) and SmartRecruiters work fine
-  // from GHA IPs — DO NOT block them. Only the company career site URLs
-  // (e.g. sumup.com/careers) have Cloudflare, not the canonical Greenhouse URLs.
-  const BLOCKED_PLATFORMS = ['ashby', 'lever'];
+  // NOTE: SmartRecruiters works fine from GHA IPs — DO NOT block it.
+  const BLOCKED_PLATFORMS = ['ashby', 'lever', 'greenhouse'];
   // Companies whose apply pages block GHA IPs (Cloudflare bot protection on custom career sites)
   const PAGE_LOAD_BLOCKED_COMPANIES = ['bitpanda', 'showpad', 'cockroach labs', 'cockroachlabs'];
   const platformLower = (job.platform || '').toLowerCase();

@@ -1,0 +1,291 @@
+🧪 TEST MODE — running only job ID 21838
+  📊 1 jobs queued (max 3/company diversity applied)
+
+🚀 Auto-applying to 1 jobs via Playwright (AI Enabled)...
+
+  🖥️  Headed mode (LOCAL_RUN) — browser window will be visible for captcha solving
+
+━━━ Senior Software Engineer I - Payment Processing Platform @ Wise (London/Remote) ━━━
+  🍪 Handling SmartRecruiters cookie consent...
+  ✅ SmartRecruiters cookie consent dismissed
+  🔍 Looking for SR Apply button (waiting for SPA render)...
+  🎯 Clicking SR Apply button: "I'm interested"...
+  ✅ Navigated to application form (URL: https://jobs.smartrecruiters.com/oneclick-ui/company/Wise/publication/23e1b5ff-414a-4a1f-ac5a-8bcf97f8fc7f?dcr_ci=Wise)
+  🍪 Dismissed cookie banner
+  🤖 Tailoring resume for Wise (London/Remote) - Senior Software Engineer I - Payment Processing Platform...
+  🔄 Generating append-only tailored content (Groq)...
+  📊 Evaluating tailored resume...
+  ⚠️ Gemini API Error: 429 - {
+  "error": {
+    "code": 429,
+    "message": "You exceeded your current quota, please check your plan and billing details. For more information on t
+  📈 ATS Score: 0%
+  📎 Tailored resume generated & uploaded
+  🍪 OneTrust consent accepted via API
+  ⏳ Waiting for SR application form to render...
+  📋 SR form detection result: email
+  📋 SR page state: 0 visible inputs, URL: https://jobs.smartrecruiters.com/oneclick-ui/company/Wise/publication/23e1b5ff-414a-4a1f-ac5a-8bcf97f8fc7f?dcr_ci=Wise
+  📋 Input types: none
+  📋 Body preview: Senior Software Engineer I - Payment Processing Platform Kopli tn 68a, Tallinn, Estonia Senior Software Engineer I - Payment Processing Platform Easy Apply Choose an option to autocomplete your application. You can still fill your profile manually. or Apply With Indeed Personal information Fields ma
+  📄 Form step 1/10...
+  📎 Resume uploaded to an input
+  📎 Resume uploaded to an input
+  📧 Filled confirm email field
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 23 total inputs, 14 visible: input[name=file-input][type=file], input[name=first-name-input][type=text], input[name=last-name-input][type=text], input[name=email-input][type=email], input[name=confirm-email-input][type=email], input[name=spl-form-element_15][type=text], input[name=spl-form-element_14][type=text], input[name=spl-form-element_5][type=tel], input[name=linkedin-input][type=text], input[name=facebook-input][type=text]
+  🤖 AI filling 11 fields...
+    ↳ Filled first-name-input -> Abhishek Raj
+    ↳ Filled last-name-input -> Pagadala
+    ↳ Filled email-input -> pagadalaabhishek60@gmail.com
+    ↳ Filled confirm-email-input -> pagadalaabhishek60@gmail.com
+    ↳ Filled spl-form-element_15 -> Germany
+    ↳ Filled spl-form-element_14 -> Munich
+    ↳ Filled linkedin-input -> https://www.linkedin.com/in/abhishek-raj-pagadala
+    ↳ Filled facebook-input -> 
+    ↳ Filled twitter-input -> 
+    ↳ Filled website-input -> https://github.com/AbhishekAbsy0710
+    ↳ Filled hiring-manager-message-input -> I am excited about the opportunity to work with yo...
+  📧 Pre-submit: forcefully re-filling confirm email using click+type...
+  ➡️  Step 1: Clicking NEXT → "Next"
+  📄 Form step 2/10...
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 27 total inputs, 19 visible: input[name=question_ba793815-aca2-429a-a322-7dca7e2d06a8][type=text], input[name=question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55][type=text], input[name=question_df4112bc-03f8-4842-90fb-e31f9ff1b236][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-lang][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-level][type=text], input[name=question_f421b885-3c9c-4597-b01a-877483f679b1][type=text], input[name=question_04454b47-8349-4f47-b455-d4fae1d34df5][type=text], input[name=question_f49acc07-af36-4ec4-9240-3102c3cd66e3][type=text], input[name=question_acdb20a9-4f6c-4185-8ccc-fd7f9b918d45][type=text], input[name=question_d38e1f32-4450-4023-b452-13f33d2864b9][type=text]
+  🤖 AI filling 13 fields...
+    ↳ Filled question_ba793815-aca2-429a-a322-7dca7e2d06a8 -> Abhishek Raj Pagadala
+    ↳ Filled question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55 -> pagadalaabhishek60@gmail.com
+    ↳ Filled question_df4112bc-03f8-4842-90fb-e31f9ff1b236 -> +49 176 6723 9250
+    ↳ Filled question_f421b885-3c9c-4597-b01a-877483f679b1 -> Abhishek Raj Pagadala
+    ↳ Filled question_04454b47-8349-4f47-b455-d4fae1d34df5 -> Germany
+    ↳ Filled question_f49acc07-af36-4ec4-9240-3102c3cd66e3 -> Munich
+    ↳ Filled question_d38e1f32-4450-4023-b452-13f33d2864b9 -> EU Blue Card
+    ↳ Filled question_72a5e542-805b-4677-94b1-005f9009503b -> English (Fluent), Hindi (Native), German (B1)
+    ↳ Filled question_b655ebb6-aa45-4ee4-abaa-8c0c7c3168c3 -> No
+    ↳ Filled question_c2027dbd-babc-4346-bbc2-452fcc7e5b3e -> Yes
+    ↳ Filled question_15a635af-e8a8-4e8c-a0e2-8970b6c72a8c -> Yes
+    ↳ Filled question_c3587c7f-06a3-409a-b10c-e6de70cf56ec -> Yes
+    🔍 Radio eval: groupName= prefix=on result=undefined
+    ↳ Filled spl-form-element_17 -> on
+    ☑️ Checked consent via deep query: "you declare that you have read and agree to the privacy noti"
+  🔍 Debug: 1 visible buttons found:
+    → [BUTTON] "Cookie Settings" qa="" type="submit" disabled=false cls="footer-button button button--clean ot-sdk-show-settings"
+  🔘 Fallback: clicking primary button ""
+  📄 Form step 3/10...
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 27 total inputs, 19 visible: input[name=question_ba793815-aca2-429a-a322-7dca7e2d06a8][type=text], input[name=question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55][type=text], input[name=question_df4112bc-03f8-4842-90fb-e31f9ff1b236][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-lang][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-level][type=text], input[name=question_f421b885-3c9c-4597-b01a-877483f679b1][type=text], input[name=question_04454b47-8349-4f47-b455-d4fae1d34df5][type=text], input[name=question_f49acc07-af36-4ec4-9240-3102c3cd66e3][type=text], input[name=question_acdb20a9-4f6c-4185-8ccc-fd7f9b918d45][type=text], input[name=question_d38e1f32-4450-4023-b452-13f33d2864b9][type=text]
+  🤖 AI filling 13 fields...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4731, Re
+  ⏳ TPM limit hit. Waiting 16s before retry...
+    ↳ Filled question_ba793815-aca2-429a-a322-7dca7e2d06a8 -> Abhishek Raj Pagadala
+    ↳ Filled question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55 -> pagadalaabhishek60@gmail.com
+    ↳ Filled question_df4112bc-03f8-4842-90fb-e31f9ff1b236 -> +49 176 6723 9250
+    ↳ Filled question_f421b885-3c9c-4597-b01a-877483f679b1 -> Abhishek Raj Pagadala
+    ↳ Filled question_04454b47-8349-4f47-b455-d4fae1d34df5 -> Germany
+    ↳ Filled question_f49acc07-af36-4ec4-9240-3102c3cd66e3 -> Munich
+    ↳ Filled question_d38e1f32-4450-4023-b452-13f33d2864b9 -> EU Blue Card
+    ↳ Filled question_72a5e542-805b-4677-94b1-005f9009503b -> English (Fluent), Hindi (Native), German (B1)
+    ↳ Filled question_b655ebb6-aa45-4ee4-abaa-8c0c7c3168c3 -> No
+    ↳ Filled question_c2027dbd-babc-4346-bbc2-452fcc7e5b3e -> Yes
+    ↳ Filled question_15a635af-e8a8-4e8c-a0e2-8970b6c72a8c -> Yes
+    ↳ Filled question_c3587c7f-06a3-409a-b10c-e6de70cf56ec -> Yes
+    🔍 Radio eval: groupName= prefix=on result=undefined
+    ↳ Filled spl-form-element_17 -> on
+    ☑️ Checked consent via deep query: "you declare that you have read and agree to the privacy noti"
+  🔍 Debug: 1 visible buttons found:
+    → [BUTTON] "Cookie Settings" qa="" type="submit" disabled=false cls="footer-button button button--clean ot-sdk-show-settings"
+  🔘 Fallback: clicking primary button ""
+  📄 Form step 4/10...
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 27 total inputs, 19 visible: input[name=question_ba793815-aca2-429a-a322-7dca7e2d06a8][type=text], input[name=question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55][type=text], input[name=question_df4112bc-03f8-4842-90fb-e31f9ff1b236][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-lang][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-level][type=text], input[name=question_f421b885-3c9c-4597-b01a-877483f679b1][type=text], input[name=question_04454b47-8349-4f47-b455-d4fae1d34df5][type=text], input[name=question_f49acc07-af36-4ec4-9240-3102c3cd66e3][type=text], input[name=question_acdb20a9-4f6c-4185-8ccc-fd7f9b918d45][type=text], input[name=question_d38e1f32-4450-4023-b452-13f33d2864b9][type=text]
+  🤖 AI filling 13 fields...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4601, Re
+  ⏳ TPM limit hit. Waiting 15s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 5890, Re
+  ⏳ TPM limit hit. Waiting 28s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 5841, Re
+  ⏳ TPM limit hit. Waiting 27s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 5604, Re
+  ⏳ TPM limit hit. Waiting 25s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4761, Re
+  ⏳ TPM limit hit. Waiting 17s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 5663, Re
+  ⏳ TPM limit hit. Waiting 26s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4668, Re
+  ⏳ TPM limit hit. Waiting 16s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4618, Re
+  ⏳ TPM limit hit. Waiting 15s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4222, Re
+  ⏳ TPM limit hit. Waiting 11s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4963, Re
+  ⏳ TPM limit hit. Waiting 19s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4560, Re
+  ⏳ TPM limit hit. Waiting 15s before retry...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4730, Re
+  ⏳ TPM limit hit. Waiting 16s before retry...
+    ↳ Filled question_ba793815-aca2-429a-a322-7dca7e2d06a8 -> Abhishek Raj Pagadala
+    ↳ Filled question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55 -> pagadalaabhishek60@gmail.com
+    ↳ Filled question_df4112bc-03f8-4842-90fb-e31f9ff1b236 -> +49 176 6723 9250
+    ↳ Filled question_f421b885-3c9c-4597-b01a-877483f679b1 -> Abhishek Raj Pagadala
+    ↳ Filled question_04454b47-8349-4f47-b455-d4fae1d34df5 -> Germany
+    ↳ Filled question_f49acc07-af36-4ec4-9240-3102c3cd66e3 -> Munich
+    ↳ Filled question_d38e1f32-4450-4023-b452-13f33d2864b9 -> EU Blue Card
+    ↳ Filled question_72a5e542-805b-4677-94b1-005f9009503b -> English (Fluent), Hindi (Native), German (B1)
+    ↳ Filled question_b655ebb6-aa45-4ee4-abaa-8c0c7c3168c3 -> No
+    ↳ Filled question_c2027dbd-babc-4346-bbc2-452fcc7e5b3e -> Yes
+    ↳ Filled question_15a635af-e8a8-4e8c-a0e2-8970b6c72a8c -> Yes
+    ↳ Filled question_c3587c7f-06a3-409a-b10c-e6de70cf56ec -> Yes
+    🔍 Radio eval: groupName= prefix=on result=undefined
+    ↳ Filled spl-form-element_17 -> on
+    ☑️ Checked consent via deep query: "you declare that you have read and agree to the privacy noti"
+  🔍 Debug: 1 visible buttons found:
+    → [BUTTON] "Cookie Settings" qa="" type="submit" disabled=false cls="footer-button button button--clean ot-sdk-show-settings"
+  🔘 Fallback: clicking primary button ""
+  📄 Form step 5/10...
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 27 total inputs, 19 visible: input[name=question_ba793815-aca2-429a-a322-7dca7e2d06a8][type=text], input[name=question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55][type=text], input[name=question_df4112bc-03f8-4842-90fb-e31f9ff1b236][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-lang][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-level][type=text], input[name=question_f421b885-3c9c-4597-b01a-877483f679b1][type=text], input[name=question_04454b47-8349-4f47-b455-d4fae1d34df5][type=text], input[name=question_f49acc07-af36-4ec4-9240-3102c3cd66e3][type=text], input[name=question_acdb20a9-4f6c-4185-8ccc-fd7f9b918d45][type=text], input[name=question_d38e1f32-4450-4023-b452-13f33d2864b9][type=text]
+  🤖 AI filling 13 fields...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4075, Re
+  ⏳ TPM limit hit. Waiting 10s before retry...
+    ↳ Filled question_ba793815-aca2-429a-a322-7dca7e2d06a8 -> Abhishek Raj Pagadala
+    ↳ Filled question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55 -> pagadalaabhishek60@gmail.com
+    ↳ Filled question_df4112bc-03f8-4842-90fb-e31f9ff1b236 -> +49 176 6723 9250
+    ↳ Filled question_f421b885-3c9c-4597-b01a-877483f679b1 -> Abhishek Raj Pagadala
+    ↳ Filled question_04454b47-8349-4f47-b455-d4fae1d34df5 -> Germany
+    ↳ Filled question_f49acc07-af36-4ec4-9240-3102c3cd66e3 -> Munich
+    ↳ Filled question_d38e1f32-4450-4023-b452-13f33d2864b9 -> EU Blue Card
+    ↳ Filled question_72a5e542-805b-4677-94b1-005f9009503b -> English, Hindi, German
+    ↳ Filled question_b655ebb6-aa45-4ee4-abaa-8c0c7c3168c3 -> Yes
+    ↳ Filled question_c2027dbd-babc-4346-bbc2-452fcc7e5b3e -> Yes
+    ↳ Filled question_15a635af-e8a8-4e8c-a0e2-8970b6c72a8c -> Yes
+    ↳ Filled question_c3587c7f-06a3-409a-b10c-e6de70cf56ec -> Yes
+    🔍 Radio eval: groupName= prefix=on result=undefined
+    ↳ Filled spl-form-element_17 -> on
+    ☑️ Checked consent via deep query: "you declare that you have read and agree to the privacy noti"
+  🔍 Debug: 1 visible buttons found:
+    → [BUTTON] "Cookie Settings" qa="" type="submit" disabled=false cls="footer-button button button--clean ot-sdk-show-settings"
+  🔘 Fallback: clicking primary button ""
+  📄 Form step 6/10...
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 27 total inputs, 19 visible: input[name=question_ba793815-aca2-429a-a322-7dca7e2d06a8][type=text], input[name=question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55][type=text], input[name=question_df4112bc-03f8-4842-90fb-e31f9ff1b236][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-lang][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-level][type=text], input[name=question_f421b885-3c9c-4597-b01a-877483f679b1][type=text], input[name=question_04454b47-8349-4f47-b455-d4fae1d34df5][type=text], input[name=question_f49acc07-af36-4ec4-9240-3102c3cd66e3][type=text], input[name=question_acdb20a9-4f6c-4185-8ccc-fd7f9b918d45][type=text], input[name=question_d38e1f32-4450-4023-b452-13f33d2864b9][type=text]
+  🤖 AI filling 13 fields...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 4082, Re
+  ⏳ TPM limit hit. Waiting 10s before retry...
+    ↳ Filled question_ba793815-aca2-429a-a322-7dca7e2d06a8 -> Abhishek Raj Pagadala
+    ↳ Filled question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55 -> pagadalaabhishek60@gmail.com
+    ↳ Filled question_df4112bc-03f8-4842-90fb-e31f9ff1b236 -> +49 176 6723 9250
+    ↳ Filled question_f421b885-3c9c-4597-b01a-877483f679b1 -> Abhishek Raj Pagadala
+    ↳ Filled question_04454b47-8349-4f47-b455-d4fae1d34df5 -> Germany
+    ↳ Filled question_f49acc07-af36-4ec4-9240-3102c3cd66e3 -> Munich
+    ↳ Filled question_d38e1f32-4450-4023-b452-13f33d2864b9 -> EU Blue Card
+    ↳ Filled question_72a5e542-805b-4677-94b1-005f9009503b -> English (Fluent), Hindi (Native), German (B1)
+    ↳ Filled question_b655ebb6-aa45-4ee4-abaa-8c0c7c3168c3 -> Full-stack engineer with 4+ years spanning DevOps,...
+    ↳ Filled question_c2027dbd-babc-4346-bbc2-452fcc7e5b3e -> DevOps Engineer, Cloud Engineer, Full Stack Develo...
+    ↳ Filled question_15a635af-e8a8-4e8c-a0e2-8970b6c72a8c -> Switzerland, Germany, Luxembourg, Netherlands, Aus...
+    ↳ Filled question_c3587c7f-06a3-409a-b10c-e6de70cf56ec -> 55000
+    🔍 Radio eval: groupName= prefix=on result=undefined
+    ↳ Filled spl-form-element_17 -> on
+    ☑️ Checked consent via deep query: "you declare that you have read and agree to the privacy noti"
+  🔍 Debug: 1 visible buttons found:
+    → [BUTTON] "Cookie Settings" qa="" type="submit" disabled=false cls="footer-button button button--clean ot-sdk-show-settings"
+  🔘 Fallback: clicking primary button ""
+  📄 Form step 7/10...
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 27 total inputs, 19 visible: input[name=question_ba793815-aca2-429a-a322-7dca7e2d06a8][type=text], input[name=question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55][type=text], input[name=question_df4112bc-03f8-4842-90fb-e31f9ff1b236][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-lang][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-level][type=text], input[name=question_f421b885-3c9c-4597-b01a-877483f679b1][type=text], input[name=question_04454b47-8349-4f47-b455-d4fae1d34df5][type=text], input[name=question_f49acc07-af36-4ec4-9240-3102c3cd66e3][type=text], input[name=question_acdb20a9-4f6c-4185-8ccc-fd7f9b918d45][type=text], input[name=question_d38e1f32-4450-4023-b452-13f33d2864b9][type=text]
+  🤖 AI filling 13 fields...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 3241, Re
+  ⏳ TPM limit hit. Waiting 15s before retry...
+    ↳ Filled question_ba793815-aca2-429a-a322-7dca7e2d06a8 -> Abhishek Raj Pagadala
+    ↳ Filled question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55 -> pagadalaabhishek60@gmail.com
+    ↳ Filled question_df4112bc-03f8-4842-90fb-e31f9ff1b236 -> +49 176 6723 9250
+    ↳ Filled question_f421b885-3c9c-4597-b01a-877483f679b1 -> Abhishek Raj Pagadala
+    ↳ Filled question_04454b47-8349-4f47-b455-d4fae1d34df5 -> Germany
+    ↳ Filled question_f49acc07-af36-4ec4-9240-3102c3cd66e3 -> Munich
+    ↳ Filled question_d38e1f32-4450-4023-b452-13f33d2864b9 -> EU Blue Card
+    ↳ Filled question_72a5e542-805b-4677-94b1-005f9009503b -> English, Hindi, German
+    ↳ Filled question_b655ebb6-aa45-4ee4-abaa-8c0c7c3168c3 -> Yes
+    ↳ Filled question_c2027dbd-babc-4346-bbc2-452fcc7e5b3e -> Yes
+    ↳ Filled question_15a635af-e8a8-4e8c-a0e2-8970b6c72a8c -> Yes
+    ↳ Filled question_c3587c7f-06a3-409a-b10c-e6de70cf56ec -> 55000
+    🔍 Radio eval: groupName= prefix=on result=undefined
+    ↳ Filled spl-form-element_17 -> on
+    ☑️ Checked consent via deep query: "you declare that you have read and agree to the privacy noti"
+  🔍 Debug: 1 visible buttons found:
+    → [BUTTON] "Cookie Settings" qa="" type="submit" disabled=false cls="footer-button button button--clean ot-sdk-show-settings"
+  🔘 Fallback: clicking primary button ""
+  📄 Form step 8/10...
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 27 total inputs, 19 visible: input[name=question_ba793815-aca2-429a-a322-7dca7e2d06a8][type=text], input[name=question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55][type=text], input[name=question_df4112bc-03f8-4842-90fb-e31f9ff1b236][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-lang][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-level][type=text], input[name=question_f421b885-3c9c-4597-b01a-877483f679b1][type=text], input[name=question_04454b47-8349-4f47-b455-d4fae1d34df5][type=text], input[name=question_f49acc07-af36-4ec4-9240-3102c3cd66e3][type=text], input[name=question_acdb20a9-4f6c-4185-8ccc-fd7f9b918d45][type=text], input[name=question_d38e1f32-4450-4023-b452-13f33d2864b9][type=text]
+  🤖 AI filling 13 fields...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 2744, Re
+  ⏳ TPM limit hit. Waiting 3s before retry...
+    ↳ Filled question_ba793815-aca2-429a-a322-7dca7e2d06a8 -> Abhishek Raj Pagadala
+    ↳ Filled question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55 -> pagadalaabhishek60@gmail.com
+    ↳ Filled question_df4112bc-03f8-4842-90fb-e31f9ff1b236 -> +49 176 6723 9250
+    ↳ Filled question_f421b885-3c9c-4597-b01a-877483f679b1 -> Abhishek Raj Pagadala
+    ↳ Filled question_04454b47-8349-4f47-b455-d4fae1d34df5 -> Germany
+    ↳ Filled question_f49acc07-af36-4ec4-9240-3102c3cd66e3 -> Munich
+    ↳ Filled question_d38e1f32-4450-4023-b452-13f33d2864b9 -> EU Blue Card
+    ↳ Filled question_72a5e542-805b-4677-94b1-005f9009503b -> English, Hindi, German
+    ↳ Filled question_b655ebb6-aa45-4ee4-abaa-8c0c7c3168c3 -> Yes
+    ↳ Filled question_c2027dbd-babc-4346-bbc2-452fcc7e5b3e -> Yes
+    ↳ Filled question_15a635af-e8a8-4e8c-a0e2-8970b6c72a8c -> Yes
+    ↳ Filled question_c3587c7f-06a3-409a-b10c-e6de70cf56ec -> 55000
+    🔍 Radio eval: groupName= prefix=on result=undefined
+    ↳ Filled spl-form-element_17 -> on
+    ☑️ Checked consent via deep query: "you declare that you have read and agree to the privacy noti"
+  🔍 Debug: 1 visible buttons found:
+    → [BUTTON] "Cookie Settings" qa="" type="submit" disabled=false cls="footer-button button button--clean ot-sdk-show-settings"
+  🔘 Fallback: clicking primary button ""
+  📄 Form step 9/10...
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 27 total inputs, 19 visible: input[name=question_ba793815-aca2-429a-a322-7dca7e2d06a8][type=text], input[name=question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55][type=text], input[name=question_df4112bc-03f8-4842-90fb-e31f9ff1b236][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-lang][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-level][type=text], input[name=question_f421b885-3c9c-4597-b01a-877483f679b1][type=text], input[name=question_04454b47-8349-4f47-b455-d4fae1d34df5][type=text], input[name=question_f49acc07-af36-4ec4-9240-3102c3cd66e3][type=text], input[name=question_acdb20a9-4f6c-4185-8ccc-fd7f9b918d45][type=text], input[name=question_d38e1f32-4450-4023-b452-13f33d2864b9][type=text]
+  🤖 AI filling 13 fields...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 3409, Re
+  ⏳ TPM limit hit. Waiting 3s before retry...
+    ↳ Filled question_ba793815-aca2-429a-a322-7dca7e2d06a8 -> Abhishek Raj Pagadala
+    ↳ Filled question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55 -> pagadalaabhishek60@gmail.com
+    ↳ Filled question_df4112bc-03f8-4842-90fb-e31f9ff1b236 -> +49 176 6723 9250
+    ↳ Filled question_f421b885-3c9c-4597-b01a-877483f679b1 -> Abhishek Raj Pagadala
+    ↳ Filled question_04454b47-8349-4f47-b455-d4fae1d34df5 -> Germany
+    ↳ Filled question_f49acc07-af36-4ec4-9240-3102c3cd66e3 -> Munich
+    ↳ Filled question_d38e1f32-4450-4023-b452-13f33d2864b9 -> EU Blue Card
+    ↳ Filled question_72a5e542-805b-4677-94b1-005f9009503b -> English (Fluent), Hindi (Native), German (B1)
+    ↳ Filled question_b655ebb6-aa45-4ee4-abaa-8c0c7c3168c3 -> Full-stack engineer with 4+ years spanning DevOps,...
+    ↳ Filled question_c2027dbd-babc-4346-bbc2-452fcc7e5b3e -> DevOps Engineer, Cloud Engineer, Full Stack Develo...
+    ↳ Filled question_15a635af-e8a8-4e8c-a0e2-8970b6c72a8c -> Switzerland, Germany, Luxembourg, Netherlands, Aus...
+    ↳ Filled question_c3587c7f-06a3-409a-b10c-e6de70cf56ec -> 55000
+    🔍 Radio eval: groupName= prefix=on result=undefined
+    ↳ Filled spl-form-element_17 -> on
+    ☑️ Checked consent via deep query: "you declare that you have read and agree to the privacy noti"
+  🔍 Debug: 1 visible buttons found:
+    → [BUTTON] "Cookie Settings" qa="" type="submit" disabled=false cls="footer-button button button--clean ot-sdk-show-settings"
+  🔘 Fallback: clicking primary button ""
+  📄 Form step 10/10...
+  📝 Post-fill check: name=N/A, email=N/A, phone=N/A (8 inputs)
+  🔍 Field scan: 27 total inputs, 19 visible: input[name=question_ba793815-aca2-429a-a322-7dca7e2d06a8][type=text], input[name=question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55][type=text], input[name=question_df4112bc-03f8-4842-90fb-e31f9ff1b236][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-lang][type=text], input[name=question_5cb3c433-0a55-4c1e-8e57-bfd3d2f591cd-0-level][type=text], input[name=question_f421b885-3c9c-4597-b01a-877483f679b1][type=text], input[name=question_04454b47-8349-4f47-b455-d4fae1d34df5][type=text], input[name=question_f49acc07-af36-4ec4-9240-3102c3cd66e3][type=text], input[name=question_acdb20a9-4f6c-4185-8ccc-fd7f9b918d45][type=text], input[name=question_d38e1f32-4450-4023-b452-13f33d2864b9][type=text]
+  🤖 AI filling 13 fields...
+  ⚠️ Groq API Error (llama-3.1-8b-instant): 429 - {"error":{"message":"Rate limit reached for model `llama-3.1-8b-instant` in organization `org_01kq1vqvvwea982dpwkmq199dk` service tier `on_demand` on tokens per minute (TPM): Limit 6000, Used 3299, Re
+  ⏳ TPM limit hit. Waiting 9s before retry...
+    ↳ Filled question_ba793815-aca2-429a-a322-7dca7e2d06a8 -> Abhishek Raj Pagadala
+    ↳ Filled question_ba7f895b-5e81-47ab-8f9e-2d44f20e3a55 -> pagadalaabhishek60@gmail.com
+    ↳ Filled question_df4112bc-03f8-4842-90fb-e31f9ff1b236 -> +49 176 6723 9250
+    ↳ Filled question_f421b885-3c9c-4597-b01a-877483f679b1 -> Abhishek Raj Pagadala
+    ↳ Filled question_04454b47-8349-4f47-b455-d4fae1d34df5 -> Germany
+    ↳ Filled question_f49acc07-af36-4ec4-9240-3102c3cd66e3 -> Munich
+    ↳ Filled question_d38e1f32-4450-4023-b452-13f33d2864b9 -> EU Blue Card
+    ↳ Filled question_72a5e542-805b-4677-94b1-005f9009503b -> English, Hindi, German
+    ↳ Filled question_b655ebb6-aa45-4ee4-abaa-8c0c7c3168c3 -> Yes
+    ↳ Filled question_c2027dbd-babc-4346-bbc2-452fcc7e5b3e -> Yes
+    ↳ Filled question_15a635af-e8a8-4e8c-a0e2-8970b6c72a8c -> Yes
+    ↳ Filled question_c3587c7f-06a3-409a-b10c-e6de70cf56ec -> 55000
+    🔍 Radio eval: groupName= prefix=on result=undefined
+    ↳ Filled spl-form-element_17 -> on
+    ☑️ Checked consent via deep query: "you declare that you have read and agree to the privacy noti"
+  🔍 Debug: 1 visible buttons found:
+    → [BUTTON] "Cookie Settings" qa="" type="submit" disabled=false cls="footer-button button button--clean ot-sdk-show-settings"
+  🔘 Fallback: clicking primary button ""
+  ❌ Failed: Form exceeded 10 steps without Submit button
+
+📊 Results: 0 applied, 1 failed, 0 skipped
+
+  📣 Discord notification sent: ❌ Auto-Apply Failed: Senior Software Engineer I - Payment Processing Platform
+  📣 Discord notification sent: 📊 Auto-Apply Run Complete
