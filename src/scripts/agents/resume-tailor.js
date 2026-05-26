@@ -146,11 +146,18 @@ export async function generateTailoredResume(job, context, supabase, fallbackPat
 
     // 5. ATS score evaluation
     console.log(`  📊 Evaluating tailored resume...`);
-    const scoreRes = await callGroq(
+    let scoreRes = await callGemini(
           'You are a strict ATS. Compare resume to JD. Return JSON: {"score": integer 0-100}',
-          `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume:\n${JSON.stringify(tailoredJson)}`,
-          'llama-3.3-70b-versatile'
+          `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume:\n${JSON.stringify(tailoredJson)}`
         );
+    // Fallback to Groq/Llama if Gemini fails
+    if (!scoreRes || scoreRes.trim() === '{}') {
+      scoreRes = await callGroq(
+            'You are a strict ATS. Compare resume to JD. Return JSON: {"score": integer 0-100}',
+            `Job Description:\n${job.description ? job.description.substring(0, 3000) : job.title}\n\nResume:\n${JSON.stringify(tailoredJson)}`,
+            'llama-3.3-70b-versatile'
+          );
+    }
     let score = 0;
     try {
       const sm = scoreRes.match(/\{[\s\S]*\}/);

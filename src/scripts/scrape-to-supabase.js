@@ -31,7 +31,7 @@ const supabase = createClient(
 
 // ── Groq evaluator ────────────────────────────────────────────────────────────
 async function evaluateJob(job, profileText) {
-  // Try Groq/Llama first (reliable, fast), fallback to Gemini
+  // Try Gemini first (best quality), fallback to Groq/Llama
   const geminiKey = process.env.GEMINI_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
 
@@ -72,7 +72,35 @@ action rules: A/B → "auto_queue", C → "manual_queue", D/F → "skip"`;
 
   const userMsg = `CANDIDATE PROFILE:\n${profileText}\n\nJOB TITLE: ${job.title}\nCOMPANY: ${job.company}\nLOCATION: ${job.location}\nDESCRIPTION:\n${(job.description || '').slice(0, 2500)}`;
 
-  // --- Try Groq/Llama first (reliable, fast) ---
+  // --- Try Gemini first (best quality) ---
+  if (geminiKey) {
+    try {
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: richPrompt + '\n\n' + userMsg }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 1200, responseMimeType: 'application/json' }
+          })
+        }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          parsed._model = 'gemini-2.0-flash';
+          parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
+          return parsed;
+        }
+      }
+    } catch { /* fall through to Groq */ }
+  }
+
+  // --- Fallback: Groq/Llama ---
   if (groqKey) {
     try {
       const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -96,34 +124,6 @@ action rules: A/B → "auto_queue", C → "manual_queue", D/F → "skip"`;
         if (match) {
           const parsed = JSON.parse(match[0]);
           parsed._model = 'llama-3.3-70b';
-          parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
-          return parsed;
-        }
-      }
-    } catch { /* fall through to Gemini */ }
-  }
-
-  // --- Fallback: Gemini ---
-  if (geminiKey) {
-    try {
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: richPrompt + '\n\n' + userMsg }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 1200, responseMimeType: 'application/json' }
-          })
-        }
-      );
-      if (resp.ok) {
-        const data = await resp.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const match = text.match(/\{[\s\S]*\}/);
-        if (match) {
-          const parsed = JSON.parse(match[0]);
-          parsed._model = 'gemini-2.0-flash';
           parsed.dimension_scores = normalizeDimensions(parsed.dimension_scores);
           return parsed;
         }

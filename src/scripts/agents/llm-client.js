@@ -47,11 +47,11 @@ export async function callGemini(systemPrompt, userPrompt) {
 
 // Ordered fallback chain — each model cascades to the NEXT one
 const MODEL_CASCADE = [
-  'llama-3.3-70b-versatile',                         // 100k TPD — primary, best quality
+  '__gemini__',                                       // Gemini 2.0 Flash — primary, best quality
+  'llama-3.3-70b-versatile',                         // 100k TPD — Groq fallback, high quality
   'meta-llama/llama-4-scout-17b-16e-instruct',       // 500k TPD — 17b, very capable
-  'mixtral-8x7b-32768',                              // 500k TPD — 47B MoE, much smarter than 8b
-  'llama-3.1-8b-instant',                             // 500k TPD — last resort Groq
-  '__gemini__',                                       // Gemini 2.0 Flash — 1M TPD, virtually unlimited
+  'mixtral-8x7b-32768',                              // 500k TPD — 47B MoE
+  'llama-3.1-8b-instant',                             // 500k TPD — last resort
 ];
 
 function getNextModel(currentModel) {
@@ -60,7 +60,7 @@ function getNextModel(currentModel) {
   return MODEL_CASCADE[idx + 1];
 }
 
-export async function callGroq(systemPrompt, userPrompt, model = 'llama-3.3-70b-versatile', _depth = 0) {
+export async function callGroq(systemPrompt, userPrompt, model = '__gemini__', _depth = 0) {
   // Recursion guard — prevent infinite loops
   if (_depth > MODEL_CASCADE.length + 2) {
     console.log(`  ⚠️ Max cascade depth reached — returning empty`);
