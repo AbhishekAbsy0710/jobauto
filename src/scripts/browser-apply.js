@@ -1513,9 +1513,9 @@ async function main() {
       await page.goto(job.apply_link, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(2000 + Math.random() * 1500);
 
-      // === JOB BOARD REDIRECT: arbeitnow/remoteok/jobgether are aggregators, not ATS forms ===
+      // === JOB BOARD REDIRECT: arbeitnow/remoteok/jobgether/jobicy are aggregators, not ATS forms ===
       const currentUrl = page.url().toLowerCase();
-      if (currentUrl.includes('arbeitnow.com') || currentUrl.includes('remoteok.com') || currentUrl.includes('jobgether.com')) {
+      if (currentUrl.includes('arbeitnow.com') || currentUrl.includes('remoteok.com') || currentUrl.includes('jobgether.com') || currentUrl.includes('jobicy.com')) {
         console.log(`  🔀 Job board detected (${job.platform}) — waiting for JS to render apply button...`);
         
         // Wait for the JS-rendered apply button (ArbeitNow uses Vue.js, loads async)
@@ -1628,6 +1628,38 @@ async function main() {
             throw new Error('ArbeitNow: could not find external apply URL — moved to manual_queue');
 
 
+          }
+        }
+      }
+
+      // === AMAZON.JOBS REDIRECT: Amazon uses its own career portal ===
+      const curUrlAmazon = page.url().toLowerCase();
+      if (curUrlAmazon.includes('amazon.jobs') || curUrlAmazon.includes('amazon.com/jobs')) {
+        console.log(`  🔀 Amazon.jobs career page — looking for Apply button...`);
+        const amazonSelectors = [
+          'a:has-text("Apply now")', 'a:has-text("Apply Now")',
+          'button:has-text("Apply now")', 'button:has-text("Apply Now")',
+          'a:has-text("Apply")', 'button:has-text("Apply")',
+          'a.apply-button', '[data-test-id="apply-button"]', '.apply-button',
+          'a[href*="/application"]', 'a[href*="/apply"]',
+        ];
+        for (const sel of amazonSelectors) {
+          const btn = await page.$(sel).catch(() => null);
+          if (btn && await btn.isVisible().catch(() => false)) {
+            console.log(`  🎯 Amazon Apply button found`);
+            const popupPromise = page.context().waitForEvent('page', { timeout: 5000 }).catch(() => null);
+            await btn.click();
+            const popup = await popupPromise;
+            if (popup) {
+              console.log(`  🔀 Amazon Apply opened new tab: ${popup.url().substring(0, 80)}`);
+              await popup.waitForLoadState('domcontentloaded');
+              await popup.waitForTimeout(2000);
+              originalPage = page;
+              page = popup;
+            } else {
+              await page.waitForTimeout(3000);
+            }
+            break;
           }
         }
       }
@@ -1752,8 +1784,65 @@ async function main() {
           } else {
             throw new Error('SmartRecruiters: Apply button not found — marking for manual apply');
           }
+        } else if (page.url().includes('greenhouse.io') || (job.platform || '').toLowerCase() === 'greenhouse') {
+          console.log(`  🌱 Greenhouse job page detected — will click Apply button below`);
         } else {
-          throw new Error('Company marketing page detected (no apply form) — marking for manual apply');
+          // === GENERIC CAREER PAGE HANDLER ===
+          // Before giving up, try to find an Apply button on any career/listing page
+          console.log(`  🔍 No form fields found — attempting to find Apply button on career page...`);
+          const careerApplySelectors = [
+            'a:has-text("Apply")', 'a:has-text("Apply Now")', 'a:has-text("Apply for this job")',
+            'a:has-text("Jetzt bewerben")', 'a:has-text("Bewerben")',
+            'button:has-text("Apply")', 'button:has-text("Apply Now")',
+            'a[href*="/apply"]', 'a[href*="/application"]',
+            'a[class*="apply"]', 'button[class*="apply"]',
+            '[data-qa="btn-apply"]', '.apply-button', '#apply-button',
+          ];
+          let careerApplyFound = false;
+          for (const sel of careerApplySelectors) {
+            const btn = await page.$(sel).catch(() => null);
+            if (btn && await btn.isVisible().catch(() => false)) {
+              const btnText = await btn.textContent().catch(() => sel);
+              console.log(`  🎯 Found Apply button: "${btnText.trim().substring(0, 40)}"`);
+              const href = await btn.evaluate(el => el.tagName === 'A' ? el.href : null).catch(() => null);
+              // Check if it links to a known ATS
+              const ATS_DOMAINS = ['greenhouse.io', 'lever.co', 'ashbyhq.com', 'workday.com', 'myworkdayjobs.com',
+                'smartrecruiters.com', 'recruitee.com', 'personio.de', 'personio.com', 'breezy.hr', 'bamboohr.com'];
+              if (href && ATS_DOMAINS.some(d => href.includes(d))) {
+                console.log(`  ✅ Career page Apply → ATS: ${href.substring(0, 80)}`);
+                try { await supabase.from('jobs').update({ apply_link: href }).eq('id', job.id); } catch(e) {}
+                await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                await page.waitForTimeout(2000 + Math.random() * 1000);
+                careerApplyFound = true;
+                break;
+              }
+              // Otherwise click and see what happens
+              const popupPromise = page.context().waitForEvent('page', { timeout: 5000 }).catch(() => null);
+              await btn.click();
+              const popup = await popupPromise;
+              if (popup) {
+                console.log(`  🔀 Apply opened new tab: ${popup.url().substring(0, 80)}`);
+                await popup.waitForLoadState('domcontentloaded');
+                await popup.waitForTimeout(2000);
+                originalPage = page;
+                page = popup;
+                careerApplyFound = true;
+              } else {
+                await page.waitForTimeout(3000);
+                const newHasForm = await page.evaluate(() =>
+                  !!(document.querySelector('input[type="email"], input[name*="email" i], input[name*="first" i], input[name*="name" i], input[type="file"], form'))
+                ).catch(() => false);
+                if (newHasForm) {
+                  console.log(`  ✅ Form appeared after clicking Apply`);
+                  careerApplyFound = true;
+                }
+              }
+              break;
+            }
+          }
+          if (!careerApplyFound) {
+            throw new Error('Company marketing page detected (no apply form) — marking for manual apply');
+          }
         }
       }
 

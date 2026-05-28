@@ -83,6 +83,30 @@ export async function getJobQueue(supabase, opts = {}) {
     jobs = jobs.filter(j => !(j.apply_link || '').includes('greenhouse'));
   }
 
+  // Pre-filter: remove known-broken URLs (bad scraper data, login portals, etc.)
+  const BAD_URL_PATTERNS = [
+    'community.workday.com',            // Workday community, not jobs
+    '/login',                           // Login pages (no direct apply)
+    '/sign-in',                         // Sign-in pages
+    'linkedin.com/jobs/view',           // LinkedIn job views (requires auth)
+  ];
+  const preFilterLen = jobs.length;
+  jobs = jobs.filter(j => {
+    const link = (j.apply_link || '').toLowerCase();
+    if (!link || link === '#' || (!link.startsWith('http://') && !link.startsWith('https://'))) {
+      console.log(`  ⏭️ Skipping invalid URL: ${link.substring(0, 50)} (${j.company})`);
+      return false;
+    }
+    const isBad = BAD_URL_PATTERNS.some(p => link.includes(p));
+    if (isBad) {
+      console.log(`  ⏭️ Skipping bad URL: ${link.substring(0, 60)}... (${j.company})`);
+    }
+    return !isBad;
+  });
+  if (jobs.length < preFilterLen) {
+    console.log(`  🧹 Filtered ${preFilterLen - jobs.length} bad URLs`);
+  }
+
   // Pre-filter: cap per company so one company can't dominate
   const prefilterCounts = {};
   jobs = jobs.filter(j => {

@@ -89,19 +89,35 @@ export async function recordSuccess(job, supabase, opts = {}) {
   job.resumeUsed = basename(activeResumePath || RESUME_PATH);
 
   // Update jobs table with proof and resume URLs
+  // NEVER silently drop tailored_resume_url — retry column-by-column if full update fails
   try {
-    const { error: upErr } = await supabase.from('jobs').update({
+    const updateData = {
       status: 'applied',
       proof_url: screenshotUrl || null,
       tailored_resume_url: tailoredResumeUrl || null,
       applied_at: new Date().toISOString(),
-    }).eq('id', job.id);
+    };
+    const { error: upErr } = await supabase.from('jobs').update(updateData).eq('id', job.id);
     if (upErr) {
-      // Fallback: columns may not exist yet — just update status
-      await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id);
+      console.log(`  ⚠️ Full jobs update failed (${upErr.message}) — retrying column by column`);
+      await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id).catch(() => {});
+      if (screenshotUrl) {
+        await supabase.from('jobs').update({ proof_url: screenshotUrl }).eq('id', job.id).catch(() => {});
+      }
+      if (tailoredResumeUrl) {
+        await supabase.from('jobs').update({ tailored_resume_url: tailoredResumeUrl }).eq('id', job.id).catch(() => {});
+      }
+      await supabase.from('jobs').update({ applied_at: new Date().toISOString() }).eq('id', job.id).catch(() => {});
     }
-  } catch {
+  } catch (e) {
+    console.log(`  ⚠️ Jobs update exception: ${e.message} — saving what we can`);
     try { await supabase.from('jobs').update({ status: 'applied' }).eq('id', job.id); } catch {}
+    if (tailoredResumeUrl) {
+      try { await supabase.from('jobs').update({ tailored_resume_url: tailoredResumeUrl }).eq('id', job.id); } catch {}
+    }
+    if (screenshotUrl) {
+      try { await supabase.from('jobs').update({ proof_url: screenshotUrl }).eq('id', job.id); } catch {}
+    }
   }
 
   return { appId: appData?.id, methodCol };
