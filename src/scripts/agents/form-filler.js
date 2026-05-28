@@ -595,6 +595,10 @@ CRITICAL RULES:
 - For 'radio'/'checkbox': your 'value' must exactly match the option's 'value' field (NOT the label).
 - Visa/Sponsorship: Answer "No" or the closest option meaning no sponsorship needed.
 - Notice Period: "Immediately", "Immediate", or "Available immediately" depending on options. ALWAYS prefer immediate availability.
+- For ANY field asking for a Website, Portfolio, or personal URL (if not specifically asking for LinkedIn/GitHub), ALWAYS return "${PROFILE.github}".
+- For ANY field asking for a Facebook URL, ALWAYS return "https://www.facebook.com/abhishek.pagadala".
+- For ANY field asking for a Twitter or X URL, ALWAYS return "https://twitter.com/abhishek_p".
+- NEVER use "N/A" or "None" for a field that requires a URL. ALWAYS default to "${PROFILE.linkedin}" if forced to provide a valid generic URL.
 - Salary: "55000" (or match the format shown in the form).
 - Disability/Veteran/Gender: Always "Decline to answer", "Prefer not to say", or "No".
 - Yes/No questions: answer "Yes" or "No" exactly unless options are different.
