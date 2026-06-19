@@ -242,6 +242,35 @@ export async function verifySubmission(page, preSubmitUrl, job, callGroqFn, heal
     if (urlChanged) console.log(`  📍 Redirected: ${preSubmitUrl.substring(0,50)} → ${url.substring(0,50)}`);
   }
 
+  // ── Non-LLM Heuristic Fallback ───────────────────────────────────────────
+  // If no definitive success/error from platform checks, try simple heuristics
+  // before burning LLM tokens. This catches common patterns cheaply.
+  if (!isSuccess && !hasErrors) {
+    const heuristicSuccess = (
+      // URL contains success indicators
+      /\/(thank|confirm|success|applied|done|complete)/.test(url) ||
+      // Page text strongly suggests success
+      /thank\s*you\s*(for|!|,)/i.test(postSubmitLower) ||
+      /application\s*(has been\s*)?(?:received|submitted|sent)/i.test(postSubmitLower) ||
+      /we('ve|.have)\s*(received|got)\s*your/i.test(postSubmitLower) ||
+      /successfully\s*(applied|submitted)/i.test(postSubmitLower) ||
+      // Submit button disappeared AND URL changed (strong signal)
+      (submitButtonGone && urlChanged)
+    );
+
+    if (heuristicSuccess) {
+      console.log('  ✅ Heuristic verification: application likely successful (no LLM needed)');
+      return {
+        success: true,
+        hasCaptcha: false,
+        needsEmailVerification,
+        hasErrors: false,
+        failureReason: '',
+        heuristicVerified: true,
+      };
+    }
+  }
+
   // ── LLM Fallback Verification ─────────────────────────────────────────────
   // If no definitive result, ask an LLM to evaluate the page
   if (!isSuccess && !hasErrors && callGroqFn) {
@@ -294,3 +323,4 @@ export async function verifySubmission(page, preSubmitUrl, job, callGroqFn, heal
     failureReason: isSuccess ? '' : (hasErrors ? 'Validation errors after submit' : 'No success confirmation detected'),
   };
 }
+

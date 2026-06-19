@@ -21,12 +21,20 @@ import { callGroq, callGemini } from './llm-client.js';
 import { ROOT } from './constants.js';
 
 // ── The AI Prompt — APPEND ONLY, NEVER DELETE ────────────────────────────────
-const TAILOR_SYSTEM_PROMPT = `You are an expert technical recruiter. APPEND relevant content to the candidate's resume to maximise ATS match. You are STRICTLY FORBIDDEN from changing, deleting, or rewriting any existing content.
+const TAILOR_SYSTEM_PROMPT = `You are an expert technical recruiter and ATS optimization specialist. APPEND relevant content to the candidate's resume to maximise ATS match. You are STRICTLY FORBIDDEN from changing, deleting, or rewriting any existing content.
 
 RULES:
 - Do NOT modify existing bullets, titles, dates, companies, education, certifications, or contact info.
 - Do NOT fabricate experience the candidate does not have.
 - Only add content that is a truthful extension of existing experience.
+
+ATS COMPLIANCE (MANDATORY):
+- Use STANDARD section headings only: "Experience", "Skills", "Education", "Certifications", "Summary"
+- Include JD keywords VERBATIM in new bullets (do NOT use synonyms — ATS matches exact terms)
+- Keep each new bullet under 2 lines / 150 characters
+- No tables, columns, graphics, or special formatting
+- Use action verbs to start each bullet: "Deployed", "Designed", "Automated", etc.
+- New skills must be individual terms, not compound phrases
 
 Return ONLY valid JSON with these keys:
 {
@@ -143,6 +151,23 @@ export async function generateTailoredResume(job, context, supabase, fallbackPat
       : 'Base Resume (No modifications)';
 
     if (changesMadeArr.length === 0) throw new Error('No meaningful changes made');
+
+    // ── Addition-Only Safety Check ──────────────────────────────────────────
+    // Verify no top-level keys were deleted from the base resume
+    const baseKeys = Object.keys(JSON.parse(baseJsonStr));
+    const tailoredKeys = Object.keys(tailoredJson);
+    const missingKeys = baseKeys.filter(k => !tailoredKeys.includes(k));
+    if (missingKeys.length > 0) {
+      console.log(`  ⚠️ Addition-only violation: missing keys [${missingKeys.join(', ')}] — rejecting patch, using base resume`);
+      throw new Error(`Addition-only violation: keys deleted: ${missingKeys.join(', ')}`);
+    }
+    // Also verify experience entries weren't removed
+    const baseExpCount = JSON.parse(baseJsonStr).experience?.length || 0;
+    const tailoredExpCount = tailoredJson.experience?.length || 0;
+    if (tailoredExpCount < baseExpCount) {
+      console.log(`  ⚠️ Addition-only violation: experience entries reduced (${baseExpCount} → ${tailoredExpCount}) — rejecting patch`);
+      throw new Error('Addition-only violation: experience entries deleted');
+    }
 
     // 5. ATS score evaluation
     console.log(`  📊 Evaluating tailored resume...`);

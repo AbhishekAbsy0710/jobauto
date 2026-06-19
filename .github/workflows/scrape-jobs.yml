@@ -2,9 +2,10 @@ name: Scrape Jobs
 
 on:
   schedule:
-    # Two daily runs — 45 min before each auto-apply run
+    # Three daily runs — 45 min before each auto-apply run
     # Shifted OFF the top of the hour to avoid GitHub cron congestion
     - cron: '32 5 * * *'       # ~7:32 AM Berlin (before morning apply)
+    - cron: '38 9 * * *'       # ~11:38 AM Berlin (before noon apply)
     - cron: '2 14 * * *'       # ~4:02 PM Berlin (before afternoon apply)
   workflow_dispatch:  # allow manual trigger
 
@@ -20,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies

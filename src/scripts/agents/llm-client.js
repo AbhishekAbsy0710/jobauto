@@ -2,25 +2,26 @@
  * agents/llm-client.js — LLM Communication Agent
  * 
  * Handles all AI model calls with automatic fallback chains:
- *   Groq (8b → gemma2 → 8k → Gemini) for TPD limits
+ *   Gemini 2.5 Flash (primary) → Groq → Cerebras → SambaNova → OpenRouter
  *   Groq TPM retry with backoff
  *   Model decommission auto-switch
  * 
  * Exports:
  *   - callGroq(systemPrompt, userPrompt, model?) → string (JSON)
- *   - callGemini(systemPrompt, userPrompt) → string (JSON)
+ *   - callGemini(systemPrompt, userPrompt, model?) → string (JSON)
  *   - healAndRetry(page, context, maxAttempts?) → boolean
+ *   - preflightCheck() → boolean
  */
 
-// ── Gemini Fallback (1M tokens/day free) ───────────────────────────────────────
-export async function callGemini(systemPrompt, userPrompt) {
+// ── Gemini 2.5 Flash (primary model — 1M tokens/day free) ──────────────────────
+export async function callGemini(systemPrompt, userPrompt, model = 'gemini-2.5-flash') {
   if (!process.env.GEMINI_API_KEY) {
-    console.log('  ⚠️ GEMINI_API_KEY not set — cannot use Gemini fallback');
+    console.log('  ⚠️ GEMINI_API_KEY not set — cannot use Gemini');
     return '{}';
   }
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -32,16 +33,37 @@ export async function callGemini(systemPrompt, userPrompt) {
     );
     if (!res.ok) {
       const errText = await res.text();
-      console.log(`  ⚠️ Gemini API Error: ${res.status} - ${errText.substring(0, 150)}`);
+      console.log(`  ⚠️ Gemini API Error (${model}): ${res.status} - ${errText.substring(0, 150)}`);
       return '{}';
     }
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    console.log(`  ✅ Gemini 2.0 Flash responded (${text.length} chars)`);
+    console.log(`  ✅ Gemini ${model} responded (${text.length} chars)`);
     return text;
   } catch (e) {
     console.log(`  ⚠️ Gemini call failed: ${e.message}`);
     return '{}';
+  }
+}
+
+// ── Preflight Health Check — verify LLM is reachable before burning time ───────
+export async function preflightCheck() {
+  console.log('\n🩺 Preflight LLM health check...');
+  try {
+    const result = await callGemini(
+      'Return only valid JSON.',
+      'Return: {"status": "ok"}',
+      'gemini-2.5-flash'
+    );
+    if (result && result.includes('ok')) {
+      console.log('  ✅ LLM is healthy — Gemini 2.5 Flash responding');
+      return true;
+    }
+    console.log('  ⚠️ Gemini returned unexpected response — continuing anyway');
+    return true; // Don't block on weird but non-error responses
+  } catch (e) {
+    console.log(`  ❌ Preflight failed: ${e.message}`);
+    return false;
   }
 }
 
@@ -79,7 +101,7 @@ const PROVIDERS = {
 // Ordered fallback chain — each model cascades to the NEXT one
 // Format: { provider, model, label, quota }
 const MODEL_CASCADE = [
-  { provider: 'gemini',     model: 'gemini-2.0-flash',                           label: 'Gemini 2.0 Flash',        quota: '1500 req/day' },
+  { provider: 'gemini',     model: 'gemini-2.5-flash',                           label: 'Gemini 2.5 Flash',        quota: '1500 req/day' },
   { provider: 'groq',       model: 'llama-3.3-70b-versatile',                    label: 'Groq Llama 3.3 70b',      quota: '100k TPD' },
   { provider: 'cerebras',   model: 'gpt-oss-120b',                               label: 'Cerebras GPT-OSS 120b',   quota: '1M tok/day' },
   { provider: 'groq',       model: 'meta-llama/llama-4-scout-17b-16e-instruct',  label: 'Groq Scout 17b',          quota: '500k TPD' },

@@ -171,6 +171,22 @@ function isDealBreaker(job, dealBreakers = []) {
 
 // ── Upsert job + optional evaluation into Supabase ───────────────────────────
 async function upsertJob(job, evaluation) {
+  // ── Junk URL Filter — reject non-job URLs at scrape time ──────────────────
+  const link = (job.apply_link || '').toLowerCase().trim();
+  const JUNK_URL_PATTERNS = [
+    'facebook.com', 'twitter.com', 'x.com/status', 'instagram.com',
+    'tiktok.com', 'youtube.com', 'medium.com', 'reddit.com',
+    'blog.', 'javascript:', 'mailto:', 'tel:',
+    '#', // anchor-only links
+  ];
+  if (!link || link === '#' || (!link.startsWith('http://') && !link.startsWith('https://'))) {
+    return null; // Invalid URL — skip silently
+  }
+  if (JUNK_URL_PATTERNS.some(p => link.includes(p))) {
+    console.log(`  🗑️ Rejected junk URL: ${link.substring(0, 60)}... (${job.company})`);
+    return null;
+  }
+
   // EXCEPTION: Some ATS platforms block headless Chrome on GHA datacenter IPs.
   // Route them to manual_queue at scrape time to avoid wasting browser time.
   //

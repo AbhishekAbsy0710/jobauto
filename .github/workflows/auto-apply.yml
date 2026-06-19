@@ -2,10 +2,11 @@ name: Auto Apply Jobs
 
 on:
   schedule:
-    # Two daily runs — shifted OFF the top of the hour to avoid GitHub cron congestion
+    # Three daily runs — shifted OFF the top of the hour to avoid GitHub cron congestion
     # GitHub docs: "High load times include the start of every hour"
     - cron: '17 6 * * *'       # ~8:17 AM Berlin (morning run)
-    - cron: '47 14 * * *'      # ~4:47 PM Berlin (afternoon backup)
+    - cron: '23 10 * * *'      # ~12:23 PM Berlin (noon run)
+    - cron: '47 14 * * *'      # ~4:47 PM Berlin (afternoon run)
   workflow_dispatch:          # allow manual trigger from GitHub UI
 
 jobs:
@@ -22,7 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install Node dependencies
@@ -100,6 +101,8 @@ jobs:
           SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          AMAZON_JOBS_EMAIL: ${{ secrets.AMAZON_JOBS_EMAIL }}
+          AMAZON_JOBS_PASSWORD: ${{ secrets.AMAZON_JOBS_PASSWORD }}
         run: node src/scripts/browser-apply.js
 
       # ── 9. Show OTP watcher logs ──────────────────────────────────────────────

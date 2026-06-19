@@ -52,7 +52,7 @@ import {
   DISCORD_WEBHOOK, TARGET_KEYWORDS, SKIP_KEYWORDS, PAGE_LOAD_BLOCKED,
   tryStaticAnswer,
 } from './agents/constants.js';
-import { callGroq, callGemini, healAndRetry } from './agents/llm-client.js';
+import { callGroq, callGemini, healAndRetry, preflightCheck } from './agents/llm-client.js';
 import {
   dismissCookieBanners, handleSRCookieConsent, findAndClickSRApplyButton,
   handleSRFormPageConsent, ensureNoOverlay,
@@ -1466,6 +1466,17 @@ async function main() {
 
   // TARGET_KEYWORDS, SKIP_KEYWORDS, MAX_PER_COMPANY imported from agents/constants.js
   const companiesApplied = {}; // track how many we've applied to per company this run
+  let consecutiveFailures = 0; // Circuit breaker — abort after 5 straight failures
+  const CIRCUIT_BREAKER_THRESHOLD = 5;
+
+  // ── LLM Preflight Check ─────────────────────────────────────────────────────
+  const llmHealthy = await preflightCheck();
+  if (!llmHealthy) {
+    console.log('\n❌ LLM is unreachable — aborting run to avoid wasting GHA minutes');
+    console.log('   Check GEMINI_API_KEY secret and API quota');
+    await closeBrowser(browser);
+    process.exit(1);
+  }
 
   for (const job of jobs) {
     const page = await context.newPage();
@@ -1512,6 +1523,31 @@ async function main() {
         await page.close().catch(() => {});
         try { await supabase.from('jobs').update({ status: 'archived' }).eq('id', job.id); } catch(e) {}
         continue;
+      }
+
+      // ── Circuit Breaker — abort run if too many consecutive failures ──────────
+      if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+        console.log(`\n🔴 Circuit breaker tripped: ${consecutiveFailures} consecutive failures — aborting remaining jobs`);
+        results.skipped += jobs.length - jobs.indexOf(job);
+        break;
+      }
+
+      // ── Supabase Duplicate Pre-Check — prevent re-applying to already-applied jobs ──
+      try {
+        const { data: existingApp } = await supabase
+          .from('applications')
+          .select('id')
+          .eq('job_id', job.id)
+          .limit(1);
+        if (existingApp && existingApp.length > 0) {
+          console.log(`  ⏭️ Already applied to this job (found in applications table) — skipping`);
+          results.skipped++;
+          await page.close().catch(() => {});
+          continue;
+        }
+      } catch (dupCheckErr) {
+        // Don't block on duplicate check failure — just log and continue
+        console.log(`  ⚠️ Duplicate check failed: ${dupCheckErr.message} — continuing anyway`);
       }
 
       await page.goto(job.apply_link, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -2063,6 +2099,12 @@ async function main() {
         ]).catch(() => 'timeout');
 
         console.log(`  📋 SR form detection result: ${srFormLoaded}`);
+
+        // Extra Shadow DOM settle time — SR uses web components that need time to hydrate
+        if (srFormLoaded !== 'timeout') {
+          console.log(`  ⏳ Extra 3s wait for SR Shadow DOM hydration...`);
+          await page.waitForTimeout(3000);
+        }
 
         if (srFormLoaded === 'timeout') {
           // Form didn't render — try reloading the page (SR SPA sometimes fails on first load)
@@ -3703,6 +3745,7 @@ async function main() {
         console.log('  ✅ Application verified successful!');
         if (urlChanged) console.log(`  📍 Redirected: ${preSubmitUrl.substring(0,50)} → ${finalUrl.substring(0,50)}`);
         results.applied++;
+        consecutiveFailures = 0; // Reset circuit breaker on success
         job.needsEmailVerification = needsEmailVerification;
         // Track per-company count so subsequent jobs from same company are skipped
         const ck = (job.company||'').toLowerCase().trim();
@@ -3741,6 +3784,7 @@ async function main() {
         if (agentVerdict.success) {
           console.log('  ✅ Agent confirmed application successful!');
           results.applied++;
+          consecutiveFailures = 0; // Reset circuit breaker
           job.needsEmailVerification = needsEmailVerification;
           job.agentVerified = true;
           appliedJobs.push(job);
@@ -3754,6 +3798,7 @@ async function main() {
           if (retrySuccess) {
             console.log('  ✅ Application confirmed after agent-suggested action!');
             results.applied++;
+            consecutiveFailures = 0; // Reset circuit breaker
             job.needsEmailVerification = needsEmailVerification;
             appliedJobs.push(job);
           } else {
@@ -3779,6 +3824,8 @@ async function main() {
       }
       
       failedJobs.push(job);
+      consecutiveFailures++;
+      console.log(`  📉 Consecutive failures: ${consecutiveFailures}/${CIRCUIT_BREAKER_THRESHOLD}`);
 
       // ── Dashboard Agent: Record failure (screenshot upload + DB insert + status revert) ──
       await recordFailure(job, supabase, {
