@@ -2086,6 +2086,8 @@ async function main() {
         console.log(`  ⏳ Waiting for SR application form to render...`);
         
         // Wait for any of these SR form indicators (up to 20s)
+        // SR oneclick-ui uses Shadow DOM web components (spl-input, spl-textarea, spl-select)
+        // so we also need to check for those, not just standard HTML elements
         const srFormLoaded = await Promise.race([
           page.waitForSelector('input[name="firstName"], input[name="first_name"], input[data-qa="firstName"]', { timeout: 20000 }).then(() => 'firstName'),
           page.waitForSelector('input[name="lastName"], input[name="last_name"], input[data-qa="lastName"]', { timeout: 20000 }).then(() => 'lastName'),
@@ -2093,12 +2095,34 @@ async function main() {
           page.waitForSelector('input[type="file"], input[data-qa="upload-resume"]', { timeout: 20000 }).then(() => 'fileUpload'),
           page.waitForSelector('[data-qa="btn-submit"], button[type="submit"]:not(#onetrust-accept-btn-handler)', { timeout: 20000 }).then(() => 'submitBtn'),
           page.waitForSelector('.application-form, .job-application, [class*="ApplicationForm"]', { timeout: 20000 }).then(() => 'formContainer'),
+          // SR Shadow DOM web components
+          page.waitForSelector('spl-input, spl-textarea, spl-select, spl-button', { timeout: 20000 }).then(() => 'splComponent'),
           // Consent/GDPR step also counts as form loaded
           page.waitForSelector('input[type="checkbox"][name*="consent"], input[type="checkbox"][name*="privacy"], input[type="checkbox"][name*="gdpr"]', { timeout: 20000 }).then(() => 'consentCheckbox'),
           new Promise(resolve => setTimeout(() => resolve('timeout'), 22000)),
         ]).catch(() => 'timeout');
 
         console.log(`  📋 SR form detection result: ${srFormLoaded}`);
+
+        // If form timed out, capture JS errors for debugging
+        if (srFormLoaded === 'timeout') {
+          const jsErrors = await page.evaluate(() => {
+            // Check if the page has any content at all
+            const bodyHTML = document.body?.innerHTML?.length || 0;
+            const scripts = document.querySelectorAll('script[src]');
+            const failedScripts = [];
+            scripts.forEach(s => {
+              if (s.getAttribute('src')?.includes('oneclick')) failedScripts.push(s.getAttribute('src'));
+            });
+            // Check for common automation-detection blocks
+            const blocked = document.body?.innerText?.includes('Access Denied') ||
+                            document.body?.innerText?.includes('blocked') ||
+                            document.body?.innerText?.includes('Bot detected');
+            return { bodyHTMLLength: bodyHTML, scriptCount: scripts.length, failedScripts, blocked, title: document.title };
+          }).catch(() => ({ bodyHTMLLength: 0, scriptCount: 0, failedScripts: [], blocked: false, title: '' }));
+          console.log(`  🔍 SR debug: body=${jsErrors.bodyHTMLLength} chars, scripts=${jsErrors.scriptCount}, title="${jsErrors.title}", blocked=${jsErrors.blocked}`);
+          if (jsErrors.failedScripts.length) console.log(`  🔍 SR scripts: ${jsErrors.failedScripts.join(', ')}`);
+        }
 
         // Extra Shadow DOM settle time — SR uses web components that need time to hydrate
         if (srFormLoaded !== 'timeout') {
@@ -2129,15 +2153,24 @@ async function main() {
           console.log(`  📋 SR retry result: ${retryResult}`);
         }
         
-        // Step 4: Final check — log what we found
+        // Step 4: Final check — log what we found (including Shadow DOM web components)
         const formCheck = await page.evaluate(() => {
           const inputs = document.querySelectorAll('input:not([type="hidden"]), textarea, select, button[data-qa]');
-          const visibleInputs = Array.from(inputs).filter(el => el.offsetParent !== null && el.offsetWidth > 0);
+          const visibleInputs = Array.from(inputs).filter(el => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          });
+          // Also count SR Shadow DOM web components
+          const splEls = document.querySelectorAll('spl-input, spl-textarea, spl-select, spl-button');
+          const visibleSpl = Array.from(splEls).filter(el => {
+            const r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          });
           const bodyText = document.body.innerText.substring(0, 500);
           return {
-            totalInputs: inputs.length,
-            visibleInputs: visibleInputs.length,
-            visibleTypes: visibleInputs.slice(0, 5).map(el => `${el.tagName}[${el.type || el.getAttribute('data-qa') || el.getAttribute('name') || ''}]`),
+            totalInputs: inputs.length + splEls.length,
+            visibleInputs: visibleInputs.length + visibleSpl.length,
+            visibleTypes: [...visibleInputs.slice(0, 3).map(el => `${el.tagName}[${el.type || el.getAttribute('data-qa') || el.getAttribute('name') || ''}]`), ...visibleSpl.slice(0, 3).map(el => el.tagName.toLowerCase())],
             bodyPreview: bodyText.replace(/\s+/g, ' ').substring(0, 300),
             url: window.location.href
           };
@@ -3832,7 +3865,7 @@ async function main() {
         // No explicit success signal — ask the agent to look at the page and decide
         console.log('  🔧 No success signal detected — asking agent to evaluate page state...');
         // Strip <noscript> content from page text — it always says "JavaScript is disabled" and confuses the LLM
-        const rawPageText = await page.textContent('body').catch(() => '');
+        const rawPageText = await page.innerText('body').catch(() => '');
         const pageText = rawPageText.replace(/JavaScript is (disabled|not available|not enabled)[^.]*\.?/gi, '').trim();
         const currentUrl = page.url();
         const agentRaw = await callGroq(
@@ -3855,7 +3888,7 @@ async function main() {
           console.log(`  🤖 Agent suggests: ${agentVerdict.action}`);
           try { await page.locator(agentVerdict.action).first().click({ timeout: 5000, force: true }); } catch {}
           await page.waitForTimeout(3000);
-          const retryText = await page.textContent('body').catch(() => '').then(t => t.toLowerCase());
+          const retryText = await page.innerText('body').catch(() => '').then(t => t.toLowerCase());
           const retrySuccess = retryText.includes('thank you') || retryText.includes('application received') || retryText.includes('successfully submitted') || retryText.includes('applied successfully');
           if (retrySuccess) {
             console.log('  ✅ Application confirmed after agent-suggested action!');
