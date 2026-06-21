@@ -2188,6 +2188,8 @@ async function main() {
         // ── Wait for React/SPA form to hydrate ──
         // React SPAs (Ashby, WorkOS) load HTML shell first, then hydrate form
         // fields async. Without waiting, fillBaseFields finds zero inputs.
+        // For SR: also wait for spl-button / sr-button elements (the form may
+        // have zero standard inputs but still have action buttons).
         try {
           await page.waitForFunction(() => {
             function queryAllShadows(root, selector, res = []) {
@@ -2198,11 +2200,26 @@ async function main() {
               }
               return res;
             }
+            // Check for visible inputs OR visible SR action buttons
             const inputs = queryAllShadows(document, 'input:not([type="hidden"]), select, textarea, [contenteditable="true"]');
-            return inputs.some(i => i.offsetParent !== null || (i.getRootNode().host && i.getRootNode().host.offsetParent !== null));
-          }, { timeout: 3000 });
+            const hasVisibleInput = inputs.some(i => {
+              const r = i.getBoundingClientRect();
+              if (r.width > 0 && r.height > 0) return true;
+              const host = i.getRootNode()?.host;
+              if (host) { const hr = host.getBoundingClientRect(); return hr.width > 0 && hr.height > 0; }
+              return false;
+            });
+            if (hasVisibleInput) return true;
+            // SR-specific: check for spl-button / sr-button elements
+            const srButtons = document.querySelectorAll('spl-button, sr-button');
+            for (const btn of srButtons) {
+              const r = btn.getBoundingClientRect();
+              if (r.width > 0 && r.height > 0) return true;
+            }
+            return false;
+          }, { timeout: 8000 });
         } catch (e) {
-          console.log(`  ⏳ No visible form inputs found after 3s — filling anyway`);
+          console.log(`  ⏳ No visible form inputs/buttons found after 8s — filling anyway`);
         }
 
         // Re-fill fields on every new step (each step = new DOM)

@@ -43,7 +43,7 @@ export async function verifySubmission(page, preSubmitUrl, job, callGroqFn, heal
   console.log(`  🔗 Pre-submit URL: ${preSubmitUrl.substring(0, 80)}`);
   console.log(`  🔗 Post-submit URL: ${url.substring(0, 80)}`);
 
-  const postSubmitPageText = await page.textContent('body').catch(() => '');
+  const postSubmitPageText = await page.innerText('body').catch(() => '');
   const postSubmitLower = postSubmitPageText.toLowerCase();
 
   // Save debug artifacts
@@ -104,7 +104,7 @@ export async function verifySubmission(page, preSubmitUrl, job, callGroqFn, heal
         failureReason: 'Submission blocked as spam/bot by ATS (heal failed)',
       };
     }
-    const healedText = await page.textContent('body').catch(() => '').then(t => t.toLowerCase());
+    const healedText = await page.innerText('body').catch(() => '').then(t => t.toLowerCase());
     if (healedText.includes('thank you') || healedText.includes('application received') || healedText.includes('successfully submitted')) {
       console.log('  ✅ Healed — application confirmed successful!');
       return {
@@ -276,7 +276,7 @@ export async function verifySubmission(page, preSubmitUrl, job, callGroqFn, heal
   if (!isSuccess && !hasErrors && callGroqFn) {
     console.log('  🔧 No success signal detected — asking agent to evaluate page state...');
     // Strip <noscript> content — it always says "JavaScript is disabled" and confuses the LLM
-    const rawPageText = await page.textContent('body').catch(() => '');
+    const rawPageText = await page.innerText('body').catch(() => '');
     const pageText = rawPageText.replace(/JavaScript is (disabled|not available|not enabled)[^.]*\.?/gi, '').trim();
     const currentUrl = page.url();
     const agentRaw = await callGroqFn(
@@ -301,7 +301,7 @@ export async function verifySubmission(page, preSubmitUrl, job, callGroqFn, heal
       console.log(`  🤖 Agent suggests: ${agentVerdict.action}`);
       try { await page.locator(agentVerdict.action).first().click({ timeout: 5000, force: true }); } catch {}
       await page.waitForTimeout(3000);
-      const retryText = await page.textContent('body').catch(() => '').then(t => t.toLowerCase());
+      const retryText = await page.innerText('body').catch(() => '').then(t => t.toLowerCase());
       const retrySuccess = retryText.includes('thank you') || retryText.includes('application received') || retryText.includes('successfully submitted') || retryText.includes('applied successfully');
       if (retrySuccess) {
         return {
