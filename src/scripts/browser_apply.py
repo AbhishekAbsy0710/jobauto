@@ -14,7 +14,7 @@ import urllib.request
 import urllib.parse
 import urllib.error
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Setup paths
 SCRIPT_DIR = Path(__file__).parent
@@ -1192,11 +1192,6 @@ def detect_success(page, prev_url):
 def main():
     from playwright.sync_api import sync_playwright, TimeoutError
     from playwright_stealth import Stealth
-    import time
-    import json
-    import os
-    import re
-    import random
 
     log("🚀 JobAuto Python Browser Applier starting...")
 
@@ -1219,7 +1214,7 @@ def main():
     log(f"  🌐 Using Chromium: {chromium_path[-60:]}")
 
     # Fetch jobs from Supabase
-    from datetime import timezone
+    # timezone imported at module level
     thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     is_local = os.environ.get("LOCAL_RUN", "").lower() == "true"
 
@@ -1363,7 +1358,7 @@ def main():
                 
                 success, fail_reason, err_screenshot = apply_to_job(page, context, job, tailored_pdf_path)
 
-                from datetime import timezone as tz
+                tz = timezone  # alias for readability
                 if success:
                     results["applied"] += 1
                     company_applied[company_key] = company_applied.get(company_key, 0) + 1
@@ -1405,7 +1400,7 @@ def main():
                             {"name": "📸 Proof", "value": f"[View Screenshot]({proof_url})" if proof_url else "No screenshot", "inline": True},
                         ],
                         "image": {"url": proof_url} if proof_url else None,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
                 else:
                     results["failed"] += 1
@@ -1439,7 +1434,7 @@ def main():
                             {"name": "👉 Apply Manually", "value": f"[Click Here]({job.get('apply_link', '')})", "inline": False},
                         ],
                         "image": {"url": error_proof_url} if error_proof_url else None,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
 
             except Exception as e:
@@ -1460,7 +1455,7 @@ def main():
                         {"name": "❌ Reason", "value": f"Error: {msg}", "inline": False},
                         {"name": "👉 Apply Manually", "value": f"[Click Here]({job.get('apply_link', '')})", "inline": False},
                     ],
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 })
             finally:
                 try:
@@ -1491,7 +1486,7 @@ def main():
             "title": f"📊 Run Complete: {results['applied']} applied, {results['failed']} failed",
             "description": "\n\n".join(summary_lines) or "No details",
             "color": 3447003,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
 if __name__ == "__main__":

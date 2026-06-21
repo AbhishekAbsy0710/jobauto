@@ -2157,6 +2157,8 @@ async function main() {
       let stepCount = 0;
       let prevFieldFingerprint = '';  // Track field names to detect stuck pages
       let samePageCount = 0;          // How many times we've seen the same fields
+      let prevPageTextHash = '';      // Track page text hash to detect infinite loops
+      let pageTextStuckCount = 0;     // How many times page text hash hasn't changed
 
       while (!submitted && stepCount < MAX_STEPS) {
         stepCount++;
@@ -3324,8 +3326,12 @@ async function main() {
             for (const sel of hostSelectors) {
               const hosts = document.querySelectorAll(sel);
               for (const host of hosts) {
-                if (host.offsetParent === null) continue; // not visible
-                const hostText = (host.textContent || '').trim().toLowerCase();
+                // Use getBoundingClientRect for visibility — offsetParent is unreliable for custom elements
+                const hostRect = host.getBoundingClientRect();
+                if (hostRect.width === 0 || hostRect.height === 0) continue;
+                // Use innerText first (resolves <slot> text), then textContent, then label/aria-label attributes
+                const hostText = (host.innerText || host.textContent || host.getAttribute('label') || host.getAttribute('aria-label') || '').trim().toLowerCase();
+                if (!hostText) continue; // Skip buttons with no detectable text
                 if (skipKeywords.some(sk => hostText.includes(sk))) continue;
                 if (nextKeywords.some(kw => hostText.includes(kw))) {
                   // BYPASS VALIDATION: Set formNoValidate on button and novalidate on form
@@ -3505,15 +3511,22 @@ async function main() {
           
           if (!clickedSomething) {
             // Last resort: try any visible primary/action button (but NOT cookie/onetrust buttons)
-            const anyPrimary = await page.$('button[class*="primary"]:not([disabled]):not([class*="onetrust"]):not([class*="cookie"]), button[class*="action"]:not([disabled]):not([class*="onetrust"]):not([class*="cookie"])').catch(() => null);
+            const anyPrimary = await page.$('button[class*="primary"]:not([disabled]):not([class*="onetrust"]):not([class*="cookie"]):not([class*="ot-sdk"]), button[class*="action"]:not([disabled]):not([class*="onetrust"]):not([class*="cookie"]):not([class*="ot-sdk"])').catch(() => null);
             if (anyPrimary && await anyPrimary.isVisible().catch(() => false)) {
-              const txt = await anyPrimary.textContent().catch(() => 'unknown');
-              if (!/cookie|onetrust|privacy|settings/i.test(txt)) {
-                console.log(`  🔘 Fallback: clicking primary button "${txt.trim()}"`);
+              const txt = await anyPrimary.textContent().catch(() => '');
+              const cls = await anyPrimary.getAttribute('class').catch(() => '');
+              const textTrimmed = (txt || '').trim();
+              // Skip buttons with empty/whitespace text, cookie/privacy buttons, and OneTrust buttons
+              const isBlockedClass = /onetrust|ot-sdk|cookie|privacy/i.test(cls || '');
+              const isBlockedText = !textTrimmed || /cookie|onetrust|privacy|settings|preferences/i.test(textTrimmed);
+              if (!isBlockedClass && !isBlockedText) {
+                console.log(`  🔘 Fallback: clicking primary button "${textTrimmed}"`);
                 await anyPrimary.click({ force: true });
-                if (/(submit|apply|send)/i.test(txt)) submitted = true;
+                if (/(submit|apply|send)/i.test(textTrimmed)) submitted = true;
                 clickedSomething = true;
                 await page.waitForTimeout(2000);
+              } else {
+                console.log(`  🚫 Skipped blocked fallback button: text="${textTrimmed}" class="${(cls||'').substring(0,60)}"`);
               }
             }
           }
@@ -3522,6 +3535,38 @@ async function main() {
             console.log(`  🔘 No actionable buttons found on step ${stepCount}. Assuming end of form and breaking.`);
             break;
           }
+        }
+
+        // ── Content-hash stuck detection ──
+        // Even if field fingerprints change (re-fill gives different AI values),
+        // if the page text body hasn't meaningfully changed, we're stuck.
+        try {
+          const bodyText = await page.evaluate(() => {
+            // Get a stable text snapshot — strip dynamic timestamps/IDs
+            return (document.body?.innerText || '').substring(0, 3000)
+              .replace(/[0-9a-f]{8,}/gi, 'X')  // strip UUIDs/hashes
+              .replace(/\d{10,}/g, 'T');         // strip timestamps
+          }).catch(() => '');
+          // Simple string hash
+          let hash = 0;
+          for (let i = 0; i < bodyText.length; i++) {
+            hash = ((hash << 5) - hash + bodyText.charCodeAt(i)) | 0;
+          }
+          const hashStr = String(hash);
+          if (hashStr === prevPageTextHash && prevPageTextHash !== '') {
+            pageTextStuckCount++;
+            console.log(`  ⚠️ Page text unchanged after action (${pageTextStuckCount}/3)`);
+            if (pageTextStuckCount >= 3) {
+              await page.screenshot({ path: 'debug_stuck_loop.png', fullPage: true });
+              throw new Error(`Form stuck — page content unchanged for ${pageTextStuckCount} consecutive steps (likely clicking wrong button)`);
+            }
+          } else {
+            pageTextStuckCount = 0;
+          }
+          prevPageTextHash = hashStr;
+        } catch (hashErr) {
+          if (hashErr.message?.includes('Form stuck')) throw hashErr;
+          // ignore hash computation errors
         }
       }
 
